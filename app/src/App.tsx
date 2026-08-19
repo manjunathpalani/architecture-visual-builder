@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ReactFlowProvider, type Edge, type Node } from '@xyflow/react'
 import {
   Braces,
@@ -35,6 +35,7 @@ import {
   addSystemsInView,
   addTemplatedSubDiagram,
   deleteIntegrationInView,
+  removeSubTab,
   deleteSystemInView,
   ensureSubDiagram,
   getDiagramView,
@@ -44,6 +45,7 @@ import {
 } from './utils/diagramNavigation'
 import { ComponentPalette } from './components/ComponentPalette'
 import { DiagramBreadcrumb } from './components/DiagramBreadcrumb'
+import { DrawModeControls } from './components/DrawModeControls'
 import { ExportMenu } from './components/ExportMenu'
 import { IntegrationCanvas, type IntegrationCanvasHandle } from './components/IntegrationCanvas'
 import { JsonPanel } from './components/JsonPanel'
@@ -61,6 +63,14 @@ import {
 } from './data/templates'
 import { mergeGeneratedIntoView, type AiPlacement } from './utils/aiDiagram'
 import { countSavedKeys } from './utils/aiProviders'
+import {
+  exitElementFullscreen,
+  isElementFullscreen,
+  loadMenusHidden,
+  requestElementFullscreen,
+  saveMenusHidden,
+  subscribeFullscreenChange,
+} from './utils/fullscreen'
 
 const INITIAL_TAB = createProjectTab(createFromTemplate('enterprise'))
 
@@ -83,7 +93,11 @@ function App() {
   const [showAiDiagram, setShowAiDiagram] = useState(false)
   const [showAiEngines, setShowAiEngines] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [menusHidden, setMenusHidden] = useState(loadMenusHidden)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const canvasRef = useRef<IntegrationCanvasHandle>(null)
+  const appRef = useRef<HTMLDivElement>(null)
+  const autoHidMenusRef = useRef(false)
 
   const gitConnected = isGitHubConnected() || isAzureDevOpsConnected()
   const savedAiKeys = countSavedKeys()
@@ -168,6 +182,22 @@ function App() {
   const handleNewSubTab = () => {
     setTemplatePickerMode('sub-tab')
     setShowTemplatePicker(true)
+  }
+
+  const handleRemoveSubTab = (tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub' }) => {
+    if (tab.kind === 'overview') return
+    updateActiveTab((current) => {
+      const nextPath = current.drillPath.some((segment) => segment.systemId === tab.id)
+        ? tab.path.slice(0, -1)
+        : current.drillPath
+      return {
+        ...current,
+        document: removeSubTab(current.document, tab.path),
+        drillPath: nextPath,
+        canvasKey: current.canvasKey + 1,
+      }
+    })
+    clearSelection()
   }
 
   const handleSelectTemplate = (id: ArchitectureTemplateId) => {
@@ -366,6 +396,72 @@ function App() {
     remountCanvas()
   }
 
+  const toggleMenus = useCallback(() => {
+    autoHidMenusRef.current = false
+    setMenusHidden((prev) => !prev)
+  }, [])
+
+  const toggleFullscreen = useCallback(async () => {
+    const el = appRef.current
+    if (!el) return
+    try {
+      if (isElementFullscreen(el)) {
+        await exitElementFullscreen()
+      } else {
+        await requestElementFullscreen(el)
+      }
+    } catch {
+      setGitMessage('Fullscreen is not available in this browser')
+    }
+  }, [])
+
+  useEffect(() => {
+    saveMenusHidden(menusHidden)
+  }, [menusHidden])
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      const active = isElementFullscreen(appRef.current)
+      setIsFullscreen(active)
+      if (!active && autoHidMenusRef.current) {
+        setMenusHidden(false)
+        autoHidMenusRef.current = false
+      }
+    }
+    syncFullscreen()
+    return subscribeFullscreenChange(syncFullscreen)
+  }, [])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      const inField =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      if (inField) return
+
+      if ((event.ctrlKey || event.metaKey) && event.key === '\\') {
+        event.preventDefault()
+        toggleMenus()
+        return
+      }
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        void toggleFullscreen()
+        return
+      }
+      if (event.key === 'Escape' && menusHidden && !isElementFullscreen(appRef.current)) {
+        autoHidMenusRef.current = false
+        setMenusHidden(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menusHidden, toggleFullscreen, toggleMenus])
+
   const handleAiGenerate = (generated: ArchitectureDocument, placement: AiPlacement) => {
     if (placement === 'new-tab') {
       const newTab = createProjectTab(generated)
@@ -389,7 +485,10 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div
+      ref={appRef}
+      className={`app${menusHidden ? ' menus-hidden' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
+    >
       <header className="toolbar">
         <div className="toolbar-brand">
           <LayoutGrid size={22} />
@@ -460,6 +559,13 @@ function App() {
             onExportPptx={() => void runOfficeExport('pptx')}
             onExportDocx={() => void runOfficeExport('docx')}
           />
+          <DrawModeControls
+            variant="toolbar"
+            isFullscreen={isFullscreen}
+            menusHidden={menusHidden}
+            onToggleFullscreen={() => void toggleFullscreen()}
+            onToggleMenus={toggleMenus}
+          />
         </div>
       </header>
 
@@ -478,6 +584,7 @@ function App() {
           clearSelection()
         }}
         onNewFromTemplate={handleNewSubTab}
+        onRemove={handleRemoveSubTab}
       />
 
       <div className="workspace">
@@ -520,20 +627,28 @@ function App() {
               }}
               focusNodeId={focusNodeId}
               onFocusComplete={() => setFocusNodeId(null)}
+              isFullscreen={isFullscreen}
+              menusHidden={menusHidden}
+              onToggleFullscreen={() => void toggleFullscreen()}
+              onToggleMenus={toggleMenus}
+              onOpenAi={() => setShowAiDiagram(true)}
+              selectionKey={selectedNode?.id ?? selectedEdge?.id ?? null}
+              properties={
+                <PropertiesPanel
+                  selectedNode={selectedNode}
+                  selectedEdge={selectedEdge}
+                  drillPath={drillPath}
+                  document={document}
+                  onUpdateNode={handleUpdateNode}
+                  onUpdateEdge={handleUpdateEdge}
+                  onDeleteNode={handleDeleteNode}
+                  onDeleteEdge={handleDeleteEdge}
+                  onDrillInto={handleDrillInto}
+                />
+              }
             />
           </ReactFlowProvider>
         </main>
-        <PropertiesPanel
-          selectedNode={selectedNode}
-          selectedEdge={selectedEdge}
-          drillPath={drillPath}
-          document={document}
-          onUpdateNode={handleUpdateNode}
-          onUpdateEdge={handleUpdateEdge}
-          onDeleteNode={handleDeleteNode}
-          onDeleteEdge={handleDeleteEdge}
-          onDrillInto={handleDrillInto}
-        />
       </div>
 
       {showJsonPanel && (
@@ -607,6 +722,7 @@ function App() {
           {gitMessage}
         </div>
       )}
+
     </div>
   )
 }

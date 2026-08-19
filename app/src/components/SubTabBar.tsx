@@ -1,4 +1,4 @@
-import { LayoutTemplate, Plus } from 'lucide-react'
+import { LayoutTemplate, Plus, X } from 'lucide-react'
 import type { DiagramPath } from '../types/diagram'
 import type { SubTabItem } from '../utils/diagramNavigation'
 
@@ -7,9 +7,16 @@ interface SubTabBarProps {
   currentPath: DiagramPath
   onSelect: (path: DiagramPath) => void
   onNewFromTemplate: () => void
+  onRemove: (tab: SubTabItem) => void
 }
 
-export function SubTabBar({ tabs, currentPath, onSelect, onNewFromTemplate }: SubTabBarProps) {
+export function SubTabBar({
+  tabs,
+  currentPath,
+  onSelect,
+  onNewFromTemplate,
+  onRemove,
+}: SubTabBarProps) {
   const activeId =
     currentPath.length === 0 ? 'overview' : currentPath[currentPath.length - 1].systemId
 
@@ -21,18 +28,33 @@ export function SubTabBar({ tabs, currentPath, onSelect, onNewFromTemplate }: Su
           const stats =
             tab.stats != null ? `${tab.stats.systems} · ${tab.stats.integrations}` : ''
           return (
-            <button
+            <div
               key={tab.id}
-              type="button"
+              className={`sub-tab ${isActive ? 'active' : ''} ${tab.kind}`}
               role="tab"
               aria-selected={isActive}
-              className={`sub-tab ${isActive ? 'active' : ''} ${tab.kind}`}
               title={tab.name}
               onClick={() => onSelect(tab.path)}
+              onKeyDown={(e) => e.key === 'Enter' && onSelect(tab.path)}
+              tabIndex={0}
             >
               <span className="sub-tab-name">{tab.name}</span>
               {stats && <span className="sub-tab-stats">{stats}</span>}
-            </button>
+              {tab.kind !== 'overview' && (
+                <button
+                  type="button"
+                  className="sub-tab-close"
+                  aria-label={`Remove ${tab.name}`}
+                  title="Remove sub-tab"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(tab)
+                  }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           )
         })}
       </div>

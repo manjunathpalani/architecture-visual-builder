@@ -1,0 +1,152 @@
+import {
+  ArrowRight,
+  Circle,
+  Cylinder,
+  Diamond,
+  Eraser,
+  Hexagon,
+  Maximize2,
+  Minimize2,
+  Minus,
+  MousePointer2,
+  Pencil,
+  Square,
+  SquareRoundCorner,
+  Triangle,
+  Type,
+} from 'lucide-react'
+import { useState } from 'react'
+import type { DrawingShapeKind } from '../types'
+import type { DrawingTool } from '../types/diagram'
+import { DRAWING_COLORS } from '../utils/drawingRender'
+
+export const FREEHAND_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: string }[] = [
+  { id: 'select', icon: MousePointer2, label: 'Select / connect' },
+  { id: 'pen', icon: Pencil, label: 'Pen' },
+  { id: 'line', icon: Minus, label: 'Line' },
+  { id: 'rectangle', icon: Square, label: 'Freehand rectangle' },
+  { id: 'arrow', icon: ArrowRight, label: 'Arrow' },
+  { id: 'text', icon: Type, label: 'Text' },
+  { id: 'eraser', icon: Eraser, label: 'Eraser' },
+]
+
+export const SHAPE_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: string; kind: DrawingShapeKind }[] = [
+  { id: 'shape-rectangle', icon: Square, label: 'Rectangle', kind: 'rectangle' },
+  { id: 'shape-rounded-rect', icon: SquareRoundCorner, label: 'Rounded rect', kind: 'rounded-rect' },
+  { id: 'shape-ellipse', icon: Circle, label: 'Ellipse', kind: 'ellipse' },
+  { id: 'shape-diamond', icon: Diamond, label: 'Diamond', kind: 'diamond' },
+  { id: 'shape-triangle', icon: Triangle, label: 'Triangle', kind: 'triangle' },
+  { id: 'shape-hexagon', icon: Hexagon, label: 'Hexagon', kind: 'hexagon' },
+  { id: 'shape-cylinder', icon: Cylinder, label: 'Cylinder', kind: 'cylinder' },
+  { id: 'shape-parallelogram', icon: Square, label: 'Parallelogram', kind: 'parallelogram' },
+]
+
+const STORAGE_KEY = 'avb-drawing-toolbar-minimised'
+
+function loadMinimised(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function saveMinimised(value: boolean) {
+  try {
+    localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+interface DrawingToolbarProps {
+  drawTool: DrawingTool
+  onSelectTool: (tool: DrawingTool) => void
+  drawColor: string
+  onSelectColor: (color: string) => void
+}
+
+export function DrawingToolbar({
+  drawTool,
+  onSelectTool,
+  drawColor,
+  onSelectColor,
+}: DrawingToolbarProps) {
+  const [minimised, setMinimised] = useState(loadMinimised)
+
+  const toggle = () => {
+    setMinimised((prev) => {
+      const next = !prev
+      saveMinimised(next)
+      return next
+    })
+  }
+
+  if (minimised) {
+    return (
+      <div className="drawing-toolbar minimised">
+        <button
+          type="button"
+          className="drawing-toolbar-restore"
+          title="Show draw, shapes, and colour"
+          onClick={toggle}
+        >
+          <Pencil size={14} />
+          Draw
+          <Maximize2 size={14} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="drawing-toolbar">
+      <span className="drawing-toolbar-label">Draw</span>
+      {FREEHAND_TOOLS.map(({ id, icon: Icon, label }) => (
+        <button
+          key={id}
+          type="button"
+          className={`drawing-tool-btn ${drawTool === id ? 'active' : ''}`}
+          title={label}
+          onClick={() => onSelectTool(id)}
+        >
+          <Icon size={15} />
+        </button>
+      ))}
+      <span className="drawing-toolbar-divider" />
+      <span className="drawing-toolbar-label">Shapes</span>
+      {SHAPE_TOOLS.map(({ id, icon: Icon, label }) => (
+        <button
+          key={id}
+          type="button"
+          className={`drawing-tool-btn ${drawTool === id ? 'active' : ''}`}
+          title={`${label} (resizable + connectors)`}
+          onClick={() => onSelectTool(id)}
+        >
+          <Icon size={15} />
+        </button>
+      ))}
+      <span className="drawing-toolbar-divider" />
+      <span className="drawing-toolbar-label">Colour</span>
+      {DRAWING_COLORS.map((color) => (
+        <button
+          key={color}
+          type="button"
+          className={`drawing-color-btn ${drawColor === color ? 'active' : ''}`}
+          style={{ background: color }}
+          title={color}
+          onClick={() => onSelectColor(color)}
+        />
+      ))}
+      <span className="drawing-toolbar-divider" />
+      <button
+        type="button"
+        className="drawing-tool-btn"
+        title="Minimise draw tools"
+        onClick={toggle}
+      >
+        <Minimize2 size={15} />
+      </button>
+    </div>
+  )
+}

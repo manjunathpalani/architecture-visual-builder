@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
 import {
   Background,
   Controls,
@@ -15,21 +15,7 @@ import {
   type NodeChange,
   type OnConnect,
 } from '@xyflow/react'
-import {
-  ArrowRight,
-  Circle,
-  Cylinder,
-  Diamond,
-  Eraser,
-  Hexagon,
-  Minus,
-  MousePointer2,
-  Pencil,
-  Square,
-  SquareRoundCorner,
-  Triangle,
-  Type,
-} from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { DrawingShapeKind, PaletteItem } from '../types'
 import { DRAWING_SHAPE_LABELS, getFlowNodeType } from '../types'
@@ -50,10 +36,17 @@ import {
 } from '../utils/diagramNavigation'
 import {
   DRAWING_COLORS,
+  RECT_HANDLES,
   arrowHead,
   hitTestDrawing,
+  hitTestRectHandle,
   pathToSvg,
   rectFromPoints,
+  rectHandlePosition,
+  rectToCornerPoints,
+  resizeRectFromHandle,
+  type DrawnRect,
+  type RectHandle,
 } from '../utils/drawingRender'
 import { IntegrationNode } from './nodes/IntegrationNode'
 import { IntegrationEdge } from './edges/IntegrationEdge'
@@ -61,6 +54,8 @@ import { DiagramNode } from './nodes/DiagramNode'
 import { AnnotationNode } from './nodes/AnnotationNode'
 import { GroupNode } from './nodes/GroupNode'
 import { ShapeNode } from './nodes/ShapeNode'
+import { CanvasSidePanel } from './CanvasSidePanel'
+import { DrawingToolbar, SHAPE_TOOLS } from './DrawingToolbar'
 import { LayoutToolbar } from './LayoutToolbar'
 import { getMinimapColor } from '../utils/nodeStyle'
 import { captureReactFlowPng, type DiagramImage } from '../utils/captureDiagram'
@@ -68,7 +63,6 @@ import {
   loadFlowStyle,
   saveFlowStyle,
   traceEndToEnd,
-  type FlowColorBy,
   type FlowStyle,
   type FlowTrace,
 } from '../utils/flowTrace'
@@ -77,7 +71,7 @@ import {
   saveArchitectureStateView,
   type ArchitectureStateView,
 } from '../utils/architectureState'
-import { ArchitectureStateLegend } from './ArchitectureStateLegend'
+import { loadCanvasSideCollapsed, saveCanvasSideCollapsed } from '../utils/canvasDocks'
 
 const nodeTypes = {
   integration: IntegrationNode,
@@ -87,27 +81,6 @@ const nodeTypes = {
   shape: ShapeNode,
 }
 const edgeTypes = { integration: IntegrationEdge }
-
-const FREEHAND_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: string }[] = [
-  { id: 'select', icon: MousePointer2, label: 'Select / connect' },
-  { id: 'pen', icon: Pencil, label: 'Pen' },
-  { id: 'line', icon: Minus, label: 'Line' },
-  { id: 'rectangle', icon: Square, label: 'Freehand rectangle' },
-  { id: 'arrow', icon: ArrowRight, label: 'Arrow' },
-  { id: 'text', icon: Type, label: 'Text' },
-  { id: 'eraser', icon: Eraser, label: 'Eraser' },
-]
-
-const SHAPE_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: string; kind: DrawingShapeKind }[] = [
-  { id: 'shape-rectangle', icon: Square, label: 'Rectangle', kind: 'rectangle' },
-  { id: 'shape-rounded-rect', icon: SquareRoundCorner, label: 'Rounded rect', kind: 'rounded-rect' },
-  { id: 'shape-ellipse', icon: Circle, label: 'Ellipse', kind: 'ellipse' },
-  { id: 'shape-diamond', icon: Diamond, label: 'Diamond', kind: 'diamond' },
-  { id: 'shape-triangle', icon: Triangle, label: 'Triangle', kind: 'triangle' },
-  { id: 'shape-hexagon', icon: Hexagon, label: 'Hexagon', kind: 'hexagon' },
-  { id: 'shape-cylinder', icon: Cylinder, label: 'Cylinder', kind: 'cylinder' },
-  { id: 'shape-parallelogram', icon: Square, label: 'Parallelogram', kind: 'parallelogram' },
-]
 
 function renderDrawingElement(el: DrawingElement, selected: boolean) {
   const stroke = selected ? '#6366f1' : el.color
@@ -205,6 +178,13 @@ interface IntegrationCanvasProps {
   onDrillInto: (systemId: string, label: string) => void
   focusNodeId?: string | null
   onFocusComplete?: () => void
+  isFullscreen?: boolean
+  menusHidden?: boolean
+  onToggleFullscreen?: () => void
+  onToggleMenus?: () => void
+  properties?: ReactNode
+  selectionKey?: string | null
+  onOpenAi?: () => void
 }
 
 export interface IntegrationCanvasHandle {
@@ -219,6 +199,13 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   onDrillInto,
   focusNodeId: externalFocusNodeId,
   onFocusComplete,
+  isFullscreen = false,
+  menusHidden = false,
+  onToggleFullscreen,
+  onToggleMenus,
+  properties,
+  selectionKey = null,
+  onOpenAi,
 }, ref) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition, getNode, getNodes, setCenter, setNodes: setFlowNodes } = useReactFlow()
@@ -236,12 +223,19 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null)
   const [draftPoints, setDraftPoints] = useState<DrawingPoint[]>([])
   const [isDrawing, setIsDrawing] = useState(false)
+  const [drawingOverride, setDrawingOverride] = useState<DrawingElement | null>(null)
+  const drawingEditRef = useRef<
+    | { kind: 'resize'; id: string; handle: RectHandle; startRect: DrawnRect }
+    | { kind: 'move'; id: string; startPoint: DrawingPoint; startPoints: DrawingPoint[] }
+    | null
+  >(null)
   /** Selected box id — drives connector flow highlighting */
   const [flowFocusId, setFlowFocusId] = useState<string | null>(null)
   const [flowEdgeId, setFlowEdgeId] = useState<string | null>(null)
   const [flowStyle, setFlowStyle] = useState<FlowStyle>(loadFlowStyle)
   const [flowTrace, setFlowTrace] = useState<FlowTrace | null>(null)
   const [stateView, setStateView] = useState<ArchitectureStateView>(loadArchitectureStateView)
+  const [sideCollapsed, setSideCollapsed] = useState(loadCanvasSideCollapsed)
 
   const initial = documentToFlowAtPath(document, diagramPath, stateView)
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
@@ -370,6 +364,29 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     setEdges(flow.edges)
   }
 
+  const toggleSidePanel = () => {
+    setSideCollapsed((prev) => {
+      const next = !prev
+      saveCanvasSideCollapsed(next)
+      return next
+    })
+  }
+
+  const expandSidePanel = () => {
+    setSideCollapsed((prev) => {
+      if (!prev) return prev
+      saveCanvasSideCollapsed(false)
+      return false
+    })
+  }
+
+  const selectDrawTool = (tool: DrawingTool) => {
+    setDrawTool(tool)
+    setSelectedDrawingId(null)
+    setDraftPoints([])
+    setIsDrawing(false)
+  }
+
   useEffect(() => {
     applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true)
   }, [applyFlowFocus, flowStyle.colorBy, flowStyle.endToEnd])
@@ -406,6 +423,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       saveDrawings([...drawings, element])
       setDraftPoints([])
       setIsDrawing(false)
+      if (type === 'rectangle') setSelectedDrawingId(element.id)
     },
     [drawColor, drawings, saveDrawings],
   )
@@ -453,10 +471,44 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     [screenToFlowPosition],
   )
 
+  const beginRectangleEdit = useCallback(
+    (
+      edit:
+        | { kind: 'resize'; id: string; handle: RectHandle; startRect: DrawnRect }
+        | { kind: 'move'; id: string; startPoint: DrawingPoint; startPoints: DrawingPoint[] },
+    ) => {
+      drawingEditRef.current = edit
+      setIsDrawing(false)
+      setDraftPoints([])
+    },
+    [],
+  )
+
   const handleOverlayMouseDown = useCallback(
     (event: React.MouseEvent) => {
       if (event.button !== 0) return
       const point = flowPoint(event)
+      const handleSize = 10 / Math.max(viewport.zoom, 0.2)
+      const selected = drawings.find((d) => d.id === selectedDrawingId)
+      if (selected?.type === 'rectangle' && selected.points.length >= 2) {
+        const rect = rectFromPoints(selected.points[0], selected.points[1])
+        const handle = hitTestRectHandle(rect, point, handleSize)
+        if (handle) {
+          event.stopPropagation()
+          beginRectangleEdit({ kind: 'resize', id: selected.id, handle, startRect: rect })
+          return
+        }
+        if (drawTool === 'select' && hitTestDrawing(selected, point)) {
+          event.stopPropagation()
+          beginRectangleEdit({
+            kind: 'move',
+            id: selected.id,
+            startPoint: point,
+            startPoints: selected.points.map((p) => ({ ...p })),
+          })
+          return
+        }
+      }
 
       if (drawTool === 'eraser') {
         const hit = [...drawings].reverse().find((d) => hitTestDrawing(d, point))
@@ -476,8 +528,53 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       setDraftPoints([point])
       setSelectedDrawingId(null)
     },
-    [commitDrawing, drawTool, drawings, flowPoint, saveDrawings],
+    [beginRectangleEdit, commitDrawing, drawTool, drawings, flowPoint, saveDrawings, selectedDrawingId, viewport.zoom],
   )
+
+  useEffect(() => {
+    const onMove = (event: MouseEvent) => {
+      const edit = drawingEditRef.current
+      if (!edit) return
+      const point = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      const current = drawings.find((d) => d.id === edit.id)
+      if (!current) return
+
+      if (edit.kind === 'resize') {
+        const nextRect = resizeRectFromHandle(edit.startRect, edit.handle, point)
+        setDrawingOverride({
+          ...current,
+          points: rectToCornerPoints(nextRect),
+        })
+        return
+      }
+
+      const dx = point.x - edit.startPoint.x
+      const dy = point.y - edit.startPoint.y
+      setDrawingOverride({
+        ...current,
+        points: edit.startPoints.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      })
+    }
+
+    const onUp = () => {
+      const edit = drawingEditRef.current
+      if (!edit) return
+      drawingEditRef.current = null
+      setDrawingOverride((override) => {
+        if (override) {
+          saveDrawings(drawings.map((d) => (d.id === override.id ? override : d)))
+        }
+        return null
+      })
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [drawings, saveDrawings, screenToFlowPosition])
 
   const handleOverlayMouseMove = useCallback(
     (event: React.MouseEvent) => {
@@ -719,56 +816,8 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       : null
 
   return (
+    <div className="canvas-shell">
     <div className="canvas-wrapper" ref={reactFlowWrapper}>
-      <div className="drawing-toolbar">
-        <span className="drawing-toolbar-label">Draw</span>
-        {FREEHAND_TOOLS.map(({ id, icon: Icon, label }) => (
-          <button
-            key={id}
-            type="button"
-            className={`drawing-tool-btn ${drawTool === id ? 'active' : ''}`}
-            title={label}
-            onClick={() => {
-              setDrawTool(id)
-              setSelectedDrawingId(null)
-              setDraftPoints([])
-              setIsDrawing(false)
-            }}
-          >
-            <Icon size={15} />
-          </button>
-        ))}
-        <span className="drawing-toolbar-divider" />
-        <span className="drawing-toolbar-label">Shapes</span>
-        {SHAPE_TOOLS.map(({ id, icon: Icon, label }) => (
-          <button
-            key={id}
-            type="button"
-            className={`drawing-tool-btn ${drawTool === id ? 'active' : ''}`}
-            title={`${label} (resizable + connectors)`}
-            onClick={() => {
-              setDrawTool(id)
-              setSelectedDrawingId(null)
-              setDraftPoints([])
-              setIsDrawing(false)
-            }}
-          >
-            <Icon size={15} />
-          </button>
-        ))}
-        <span className="drawing-toolbar-divider" />
-        {DRAWING_COLORS.map((color) => (
-          <button
-            key={color}
-            type="button"
-            className={`drawing-color-btn ${drawColor === color ? 'active' : ''}`}
-            style={{ background: color }}
-            title={color}
-            onClick={() => setDrawColor(color)}
-          />
-        ))}
-      </div>
-
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -798,9 +847,11 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         elevateNodesOnSelect={false}
       >
         <Background gap={16} size={1} color="#e2e8f0" />
-        <Controls />
-        <LayoutToolbar onLayoutApplied={syncDocument} />
+        <Controls position="bottom-left" />
         <MiniMap
+          position="bottom-left"
+          pannable
+          zoomable
           nodeColor={(node) => {
             const data = node.data as IntegrationNodeData
             return data.properties?.color ?? getMinimapColor(data.systemType)
@@ -818,9 +869,68 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       >
         <svg className="drawing-svg">
           <g transform={`translate(${viewport.x}, ${viewport.y}) scale(${viewport.zoom})`}>
-            {drawings.map((el) => (
-              <g key={el.id}>{renderDrawingElement(el, el.id === selectedDrawingId)}</g>
-            ))}
+            {drawings.map((el) => {
+              const current = drawingOverride?.id === el.id ? drawingOverride : el
+              const selected = el.id === selectedDrawingId
+              const handleSize = 8 / Math.max(viewport.zoom, 0.2)
+              const rect =
+                current.type === 'rectangle' && current.points.length >= 2
+                  ? rectFromPoints(current.points[0], current.points[1])
+                  : null
+              return (
+                <g key={el.id}>
+                  {renderDrawingElement(current, selected)}
+                  {selected && rect && (
+                    <>
+                      <rect
+                        className="drawing-rect-mover"
+                        x={rect.x}
+                        y={rect.y}
+                        width={Math.max(rect.width, 1)}
+                        height={Math.max(rect.height, 1)}
+                        fill="transparent"
+                        onMouseDown={(event) => {
+                          if (event.button !== 0) return
+                          event.stopPropagation()
+                          const point = flowPoint(event)
+                          beginRectangleEdit({
+                            kind: 'move',
+                            id: el.id,
+                            startPoint: point,
+                            startPoints: current.points.map((p) => ({ ...p })),
+                          })
+                        }}
+                      />
+                      {RECT_HANDLES.map(({ id, cursor }) => {
+                        const pos = rectHandlePosition(rect, id)
+                        return (
+                          <rect
+                            key={id}
+                            className="drawing-resize-handle"
+                            x={pos.x - handleSize / 2}
+                            y={pos.y - handleSize / 2}
+                            width={handleSize}
+                            height={handleSize}
+                            rx={1.5 / Math.max(viewport.zoom, 0.2)}
+                            style={{ cursor }}
+                            onMouseDown={(event) => {
+                              if (event.button !== 0) return
+                              event.stopPropagation()
+                              beginRectangleEdit({
+                                kind: 'resize',
+                                id: el.id,
+                                handle: id,
+                                startRect: rect,
+                              })
+                            }}
+                          />
+                        )
+                      })}
+                    </>
+                  )}
+                </g>
+              )
+            })}
             {draftElement && <g className="drawing-draft">{renderDrawingElement(draftElement, false)}</g>}
             {draftShapeRect && (
               <rect
@@ -840,70 +950,33 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         </svg>
       </div>
 
-      {!isDrawMode && (
-        <div className="flow-dock" aria-live="polite">
-          <div className="flow-toolbar">
-            <span className="flow-legend-title">Flow color</span>
-            {(['direction', 'protocol', 'custom', 'path'] as FlowColorBy[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={`flow-color-btn ${flowStyle.colorBy === mode ? 'active' : ''}`}
-                onClick={() => updateFlowStyle({ colorBy: mode })}
-              >
-                {mode === 'direction' ? 'Direction' : mode === 'protocol' ? 'Protocol' : mode === 'custom' ? 'Custom' : 'Path'}
-              </button>
-            ))}
-            <span className="drawing-toolbar-divider" />
-            <label className="flow-e2e-toggle">
-              <input
-                type="checkbox"
-                checked={flowStyle.endToEnd}
-                onChange={(e) => updateFlowStyle({ endToEnd: e.target.checked })}
-              />
-              End-to-end
-            </label>
-          </div>
-          {(flowFocusId || flowEdgeId) && (
-            <div className="flow-legend">
-              <span className="flow-legend-title">
-                {flowStyle.endToEnd ? 'End-to-end paths' : 'Flow vs selection'}
-              </span>
-              {flowStyle.endToEnd && flowTrace && flowTrace.paths.length > 0 ? (
-                flowTrace.paths.slice(0, 6).map((path) => (
-                  <span key={path.id} className="flow-path-chip" title={path.labels.join(' → ')}>
-                    <i style={{ background: path.color }} />
-                    {path.labels.join(' → ')}
-                  </span>
-                ))
-              ) : (
-                <>
-                  <span className="flow-legend-item out">
-                    <i /> Downstream
-                  </span>
-                  <span className="flow-legend-item in">
-                    <i /> Upstream
-                  </span>
-                </>
-              )}
-              {flowStyle.endToEnd && flowTrace && flowTrace.paths.length > 6 && (
-                <span className="flow-legend-item dim">+{flowTrace.paths.length - 6} more</span>
-              )}
-              <span className="flow-legend-item dim">Other links dimmed</span>
-            </div>
-          )}
-        </div>
-      )}
+      <DrawingToolbar
+        drawTool={drawTool}
+        onSelectTool={selectDrawTool}
+        drawColor={drawColor}
+        onSelectColor={setDrawColor}
+      />
+      <LayoutToolbar onLayoutApplied={syncDocument} />
 
-      {!isDrawMode && (
-        <ArchitectureStateLegend view={stateView} onChangeView={updateStateView} />
+      {onOpenAi && (
+        <button
+          type="button"
+          className="ai-chat-launcher"
+          title="Draw with AI"
+          aria-label="Draw with AI"
+          onClick={onOpenAi}
+        >
+          <Sparkles size={20} />
+        </button>
       )}
 
       <div className="canvas-hint">
         {isDrawMode
           ? isShapeTool
             ? `Shape: ${SHAPE_TOOLS.find((t) => t.id === drawTool)?.label ?? 'Shape'} · Drag to size · Select mode to resize/connect`
-            : `Drawing mode: ${drawTool} · Click and drag · Select to edit components`
+            : drawTool === 'rectangle'
+              ? 'Freehand rectangle · Drag to size · After placing, drag corners or edges to increase or decrease'
+              : `Drawing mode: ${drawTool} · Click and drag · Select to edit components`
           : flowFocusId || flowEdgeId
             ? flowStyle.endToEnd
               ? 'Selection traces the full start-to-end integration path · Click empty canvas to clear'
@@ -913,6 +986,26 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
               : 'Select a box to highlight the end-to-end flow · Double-click to drill in'}
         {!isDrawMode && !flowFocusId && ' · Drag corners to resize · Drag ports to link'}
       </div>
+    </div>
+
+      <CanvasSidePanel
+        collapsed={sideCollapsed}
+        onToggle={toggleSidePanel}
+        isFullscreen={isFullscreen}
+        menusHidden={menusHidden}
+        onToggleFullscreen={onToggleFullscreen}
+        onToggleMenus={onToggleMenus}
+        flowStyle={flowStyle}
+        onFlowStyle={updateFlowStyle}
+        flowFocusId={flowFocusId}
+        flowEdgeId={flowEdgeId}
+        flowTrace={flowTrace}
+        stateView={stateView}
+        onStateView={updateStateView}
+        properties={properties}
+        selectionKey={selectionKey}
+        onExpand={expandSidePanel}
+      />
     </div>
   )
 })

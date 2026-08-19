@@ -1,15 +1,35 @@
-import { useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import { useReactFlow, type Edge, type Node } from '@xyflow/react'
-import { Columns3, Grid3x3, Maximize2, Workflow } from 'lucide-react'
+import { Columns3, Grid3x3, Maximize2, Minimize2, Workflow } from 'lucide-react'
 import { layoutByTier, layoutFlow, layoutGrid } from '../utils/autoLayout'
 import type { IntegrationEdgeData, IntegrationNodeData } from '../utils/jsonIO'
 
-interface LayoutToolbarProps {
-  onLayoutApplied: (nodes: Node<IntegrationNodeData>[], edges: Edge<IntegrationEdgeData>[]) => void
+const STORAGE_KEY = 'avb-arrange-toolbar-minimised'
+
+function loadMinimised(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
 }
 
-export function LayoutToolbar({ onLayoutApplied }: LayoutToolbarProps) {
+function saveMinimised(value: boolean) {
+  try {
+    localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+interface LayoutToolbarProps {
+  onLayoutApplied: (nodes: Node<IntegrationNodeData>[], edges: Edge<IntegrationEdgeData>[]) => void
+  embedded?: boolean
+}
+
+export function LayoutToolbar({ onLayoutApplied, embedded = false }: LayoutToolbarProps) {
   const { getNodes, getEdges, setNodes, fitView } = useReactFlow()
+  const [minimised, setMinimised] = useState(loadMinimised)
 
   const applyLayout = useCallback(
     (layoutFn: (nodes: Node<IntegrationNodeData>[], edges: Edge[]) => Node<IntegrationNodeData>[]) => {
@@ -23,9 +43,34 @@ export function LayoutToolbar({ onLayoutApplied }: LayoutToolbarProps) {
     [getNodes, getEdges, setNodes, fitView, onLayoutApplied],
   )
 
+  const toggle = () => {
+    setMinimised((prev) => {
+      const next = !prev
+      saveMinimised(next)
+      return next
+    })
+  }
+
+  if (!embedded && minimised) {
+    return (
+      <div className="layout-toolbar minimised">
+        <button
+          type="button"
+          className="drawing-toolbar-restore"
+          title="Show arrange"
+          onClick={toggle}
+        >
+          <Workflow size={14} />
+          Arrange
+          <Maximize2 size={14} />
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="layout-toolbar">
-      <span className="layout-toolbar-label">Arrange</span>
+    <div className={embedded ? 'canvas-side-arrange' : 'layout-toolbar'}>
+      {!embedded && <span className="layout-toolbar-label">Arrange</span>}
       <button
         type="button"
         className="layout-btn"
@@ -62,6 +107,19 @@ export function LayoutToolbar({ onLayoutApplied }: LayoutToolbarProps) {
         <Maximize2 size={15} />
         Fit
       </button>
+      {!embedded && (
+        <>
+          <span className="drawing-toolbar-divider" />
+          <button
+            type="button"
+            className="drawing-tool-btn"
+            title="Minimise arrange"
+            onClick={toggle}
+          >
+            <Minimize2 size={15} />
+          </button>
+        </>
+      )}
     </div>
   )
 }

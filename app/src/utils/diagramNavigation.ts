@@ -223,6 +223,26 @@ export function listSubTabs(doc: ArchitectureDocument, currentPath: DiagramPath)
   return tabs
 }
 
+export function removeSubTab(
+  doc: ArchitectureDocument,
+  tabPath: DiagramPath,
+): ArchitectureDocument {
+  if (tabPath.length === 0) return doc
+  const parentPath = tabPath.slice(0, -1)
+  const systemId = tabPath[tabPath.length - 1].systemId
+  const system = findSystemAtPath(doc, parentPath, systemId)
+  if (!system) return doc
+
+  if (system.properties?.subTab === 'template') {
+    return deleteSystemInView(doc, parentPath, systemId)
+  }
+
+  return updateSystemInView(doc, parentPath, systemId, (current) => ({
+    ...current,
+    subDiagram: undefined,
+  }))
+}
+
 export function addTemplatedSubDiagram(
   doc: ArchitectureDocument,
   path: DiagramPath,
@@ -246,6 +266,7 @@ export function addTemplatedSubDiagram(
       description: templateDoc.metadata.description ?? `Sub-diagram from ${label}`,
       width: '220',
       height: '120',
+      subTab: 'template',
     },
     subDiagram: {
       name: label,

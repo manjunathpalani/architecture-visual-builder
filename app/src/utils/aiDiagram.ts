@@ -102,6 +102,27 @@ export async function generateArchitectureFromPrompt(
   return normalizeAiDocument(parseModelJson(payload.text))
 }
 
+export function summarizeConversationForAi(
+  messages: Array<{ role: 'user' | 'assistant'; text: string }>,
+): string {
+  return messages
+    .filter((message) => message.text.trim())
+    .slice(-10)
+    .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${message.text.trim()}`)
+    .join('\n')
+}
+
+export function buildAiChatContext(
+  messages: Array<{ role: 'user' | 'assistant'; text: string }>,
+  document?: ArchitectureDocument,
+): string | undefined {
+  const parts: string[] = []
+  const conversation = summarizeConversationForAi(messages)
+  if (conversation) parts.push(`Conversation so far:\n${conversation}`)
+  if (document) parts.push(`Current architecture:\n${summarizeDocumentForAi(document)}`)
+  return parts.length > 0 ? parts.join('\n\n') : undefined
+}
+
 export function summarizeDocumentForAi(doc: ArchitectureDocument): string {
   const systems = doc.systems
     .map((s) => `- ${s.id}: ${s.label} (${s.type}${s.properties?.description ? ` — ${s.properties.description}` : ''})`)

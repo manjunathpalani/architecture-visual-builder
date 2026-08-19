@@ -1,0 +1,326 @@
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  SlidersHorizontal,
+} from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { ArchitectureStateView } from '../utils/architectureState'
+import type { FlowColorBy, FlowStyle, FlowTrace } from '../utils/flowTrace'
+import { ArchitectureLegendItems, ArchitectureStateButtons } from './ArchitectureStateLegend'
+
+const SECTION_IDS = [
+  'view',
+  'flow',
+  'state',
+  'legend',
+  'properties',
+] as const
+
+type SectionId = (typeof SECTION_IDS)[number]
+
+const SECTION_LABELS: Record<SectionId, string> = {
+  view: 'View',
+  flow: 'Flow colour',
+  state: 'Architecture state',
+  legend: 'Legend',
+  properties: 'Properties',
+}
+
+const DEFAULT_OPEN: SectionId[] = ['view', 'properties']
+const EXPANDED_STORAGE_KEY = 'avb-tools-expanded-sections'
+
+function loadExpandedSections(): Set<SectionId> {
+  try {
+    const raw = localStorage.getItem(EXPANDED_STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as string[]
+      return new Set(parsed.filter((id): id is SectionId => SECTION_IDS.includes(id as SectionId)))
+    }
+  } catch {
+    /* ignore */
+  }
+  return new Set(DEFAULT_OPEN)
+}
+
+function PanelSection({
+  id,
+  count,
+  highlight,
+  expanded,
+  onToggle,
+  children,
+}: {
+  id: SectionId
+  count?: number | string
+  highlight?: boolean
+  expanded: boolean
+  onToggle: (id: SectionId) => void
+  children: ReactNode
+}) {
+  return (
+    <div className={`palette-group ${expanded ? 'open' : 'collapsed'}${highlight ? ' highlight' : ''}`}>
+      <button
+        type="button"
+        className="palette-group-header"
+        onClick={() => onToggle(id)}
+        aria-expanded={expanded}
+      >
+        {expanded ? (
+          <ChevronDown size={14} className="palette-chevron" />
+        ) : (
+          <ChevronRight size={14} className="palette-chevron" />
+        )}
+        <span className="palette-group-title">{SECTION_LABELS[id]}</span>
+        {count != null && <span className="palette-group-count">{count}</span>}
+      </button>
+      {expanded && <div className="tools-group-body">{children}</div>}
+    </div>
+  )
+}
+
+interface CanvasSidePanelProps {
+  collapsed: boolean
+  onToggle: () => void
+  isFullscreen: boolean
+  menusHidden: boolean
+  onToggleFullscreen?: () => void
+  onToggleMenus?: () => void
+  flowStyle: FlowStyle
+  onFlowStyle: (patch: Partial<FlowStyle>) => void
+  flowFocusId: string | null
+  flowEdgeId: string | null
+  flowTrace: FlowTrace | null
+  stateView: ArchitectureStateView
+  onStateView: (view: ArchitectureStateView) => void
+  properties?: ReactNode
+  selectionKey?: string | null
+  onExpand?: () => void
+}
+
+export function CanvasSidePanel({
+  collapsed,
+  onToggle,
+  isFullscreen,
+  menusHidden,
+  onToggleFullscreen,
+  onToggleMenus,
+  flowStyle,
+  onFlowStyle,
+  flowFocusId,
+  flowEdgeId,
+  flowTrace,
+  stateView,
+  onStateView,
+  properties,
+  selectionKey = null,
+  onExpand,
+}: CanvasSidePanelProps) {
+  const open = !collapsed
+  const hasSelection = Boolean(selectionKey)
+  const [expanded, setExpanded] = useState<Set<SectionId>>(loadExpandedSections)
+  const propertiesRef = useRef<HTMLDivElement>(null)
+  const onExpandRef = useRef(onExpand)
+  onExpandRef.current = onExpand
+
+  useEffect(() => {
+    localStorage.setItem(EXPANDED_STORAGE_KEY, JSON.stringify([...expanded]))
+  }, [expanded])
+
+  useEffect(() => {
+    if (!selectionKey) return
+    onExpandRef.current?.()
+    setExpanded((prev) => {
+      if (prev.has('properties')) return prev
+      const next = new Set(prev)
+      next.add('properties')
+      return next
+    })
+    window.requestAnimationFrame(() => {
+      propertiesRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+  }, [selectionKey])
+
+  const toggleSection = useCallback((id: SectionId) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const expandAll = useCallback(() => {
+    setExpanded(new Set(SECTION_IDS))
+  }, [])
+
+  const collapseAll = useCallback(() => {
+    setExpanded(new Set())
+  }, [])
+
+  const allExpanded = expanded.size === SECTION_IDS.length
+  const allCollapsed = expanded.size === 0
+
+  return (
+    <div className={`tools-shell ${open ? 'open' : 'closed'}`}>
+      <aside className="tools-panel" aria-hidden={!open} id="canvas-tools-panel">
+        <div className="panel-header palette-panel-header">
+          <div>
+            <h2>Tools</h2>
+            <p>Options and properties</p>
+          </div>
+          <div className="palette-expand-actions">
+            <button
+              type="button"
+              className="palette-expand-btn"
+              title="Expand all sections"
+              disabled={allExpanded}
+              onClick={expandAll}
+            >
+              <ChevronsUpDown size={14} />
+            </button>
+            <button
+              type="button"
+              className="palette-expand-btn"
+              title="Collapse all sections"
+              disabled={allCollapsed}
+              onClick={collapseAll}
+            >
+              <ChevronsDownUp size={14} />
+            </button>
+            <button
+              type="button"
+              className="palette-expand-btn"
+              title="Hide tools panel"
+              onClick={onToggle}
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div className="palette-groups">
+          <PanelSection id="view" expanded={expanded.has('view')} onToggle={toggleSection}>
+            <div className="canvas-side-tools">
+              {onToggleMenus && (
+                <button
+                  type="button"
+                  className={`flow-color-btn ${menusHidden ? 'active' : ''}`}
+                  onClick={onToggleMenus}
+                >
+                  {menusHidden ? 'Show menus' : 'Hide menus'}
+                </button>
+              )}
+              {onToggleFullscreen && (
+                <button
+                  type="button"
+                  className={`flow-color-btn ${isFullscreen ? 'active' : ''}`}
+                  onClick={onToggleFullscreen}
+                >
+                  {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                </button>
+              )}
+            </div>
+          </PanelSection>
+
+          <PanelSection id="flow" expanded={expanded.has('flow')} onToggle={toggleSection}>
+            <div className="canvas-side-tools">
+              {(['direction', 'protocol', 'custom', 'path'] as FlowColorBy[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`flow-color-btn ${flowStyle.colorBy === mode ? 'active' : ''}`}
+                  onClick={() => onFlowStyle({ colorBy: mode })}
+                >
+                  {mode === 'direction'
+                    ? 'Direction'
+                    : mode === 'protocol'
+                      ? 'Protocol'
+                      : mode === 'custom'
+                        ? 'Custom'
+                        : 'Path'}
+                </button>
+              ))}
+              <label className="flow-e2e-toggle">
+                <input
+                  type="checkbox"
+                  checked={flowStyle.endToEnd}
+                  onChange={(e) => onFlowStyle({ endToEnd: e.target.checked })}
+                />
+                End-to-end
+              </label>
+            </div>
+            {(flowFocusId || flowEdgeId) && (
+              <div className="flow-legend">
+                <span className="flow-legend-title">
+                  {flowStyle.endToEnd ? 'End-to-end paths' : 'Flow vs selection'}
+                </span>
+                {flowStyle.endToEnd && flowTrace && flowTrace.paths.length > 0 ? (
+                  flowTrace.paths.slice(0, 6).map((path) => (
+                    <span key={path.id} className="flow-path-chip" title={path.labels.join(' → ')}>
+                      <i style={{ background: path.color }} />
+                      {path.labels.join(' → ')}
+                    </span>
+                  ))
+                ) : (
+                  <>
+                    <span className="flow-legend-item out">
+                      <i /> Downstream
+                    </span>
+                    <span className="flow-legend-item in">
+                      <i /> Upstream
+                    </span>
+                  </>
+                )}
+                {flowStyle.endToEnd && flowTrace && flowTrace.paths.length > 6 && (
+                  <span className="flow-legend-item dim">+{flowTrace.paths.length - 6} more</span>
+                )}
+                <span className="flow-legend-item dim">Other links dimmed</span>
+              </div>
+            )}
+          </PanelSection>
+
+          <PanelSection id="state" expanded={expanded.has('state')} onToggle={toggleSection}>
+            <ArchitectureStateButtons view={stateView} onChangeView={onStateView} />
+          </PanelSection>
+
+          <PanelSection id="legend" expanded={expanded.has('legend')} onToggle={toggleSection}>
+            <ArchitectureLegendItems />
+          </PanelSection>
+
+          <div ref={propertiesRef}>
+            <PanelSection
+              id="properties"
+              count={hasSelection ? 1 : 0}
+              highlight={hasSelection}
+              expanded={expanded.has('properties')}
+              onToggle={toggleSection}
+            >
+              <div className="canvas-side-properties visible">{properties}</div>
+            </PanelSection>
+          </div>
+        </div>
+      </aside>
+
+      <button
+        type="button"
+        className={`tools-holder ${hasSelection ? 'has-selection' : ''}`}
+        onClick={onToggle}
+        title={open ? 'Hide tools panel' : 'Show tools panel'}
+        aria-expanded={open}
+        aria-controls="canvas-tools-panel"
+      >
+        <span className="palette-holder-grip" aria-hidden>
+          <span />
+          <span />
+          <span />
+        </span>
+        <SlidersHorizontal size={14} className="palette-holder-icon" />
+        <span className="palette-holder-label">{open ? 'Hide' : 'Tools'}</span>
+        {open ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+      </button>
+    </div>
+  )
+}

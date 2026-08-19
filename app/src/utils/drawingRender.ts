@@ -12,6 +12,112 @@ export function rectFromPoints(a: DrawingPoint, b: DrawingPoint) {
   return { x, y, width, height }
 }
 
+export type RectHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+
+export interface DrawnRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export const RECT_HANDLES: Array<{ id: RectHandle; cursor: string }> = [
+  { id: 'nw', cursor: 'nwse-resize' },
+  { id: 'n', cursor: 'ns-resize' },
+  { id: 'ne', cursor: 'nesw-resize' },
+  { id: 'e', cursor: 'ew-resize' },
+  { id: 'se', cursor: 'nwse-resize' },
+  { id: 's', cursor: 'ns-resize' },
+  { id: 'sw', cursor: 'nesw-resize' },
+  { id: 'w', cursor: 'ew-resize' },
+]
+
+export function rectHandlePosition(rect: DrawnRect, handle: RectHandle): DrawingPoint {
+  const midX = rect.x + rect.width / 2
+  const midY = rect.y + rect.height / 2
+  const right = rect.x + rect.width
+  const bottom = rect.y + rect.height
+  switch (handle) {
+    case 'nw':
+      return { x: rect.x, y: rect.y }
+    case 'n':
+      return { x: midX, y: rect.y }
+    case 'ne':
+      return { x: right, y: rect.y }
+    case 'e':
+      return { x: right, y: midY }
+    case 'se':
+      return { x: right, y: bottom }
+    case 's':
+      return { x: midX, y: bottom }
+    case 'sw':
+      return { x: rect.x, y: bottom }
+    case 'w':
+      return { x: rect.x, y: midY }
+  }
+}
+
+export function resizeRectFromHandle(
+  start: DrawnRect,
+  handle: RectHandle,
+  point: DrawingPoint,
+  minSize = 8,
+): DrawnRect {
+  let left = start.x
+  let top = start.y
+  let right = start.x + start.width
+  let bottom = start.y + start.height
+
+  if (handle.includes('w')) left = point.x
+  if (handle.includes('e')) right = point.x
+  if (handle.includes('n')) top = point.y
+  if (handle.includes('s')) bottom = point.y
+
+  if (right < left) {
+    const swap = left
+    left = right
+    right = swap
+  }
+  if (bottom < top) {
+    const swap = top
+    top = bottom
+    bottom = swap
+  }
+
+  if (right - left < minSize) {
+    if (handle.includes('w')) left = right - minSize
+    else right = left + minSize
+  }
+  if (bottom - top < minSize) {
+    if (handle.includes('n')) top = bottom - minSize
+    else bottom = top + minSize
+  }
+
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+export function rectToCornerPoints(rect: DrawnRect): [DrawingPoint, DrawingPoint] {
+  return [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+  ]
+}
+
+export function hitTestRectHandle(
+  rect: DrawnRect,
+  point: DrawingPoint,
+  handleSize: number,
+): RectHandle | null {
+  const hit = handleSize
+  for (const { id } of RECT_HANDLES) {
+    const pos = rectHandlePosition(rect, id)
+    if (Math.abs(point.x - pos.x) <= hit && Math.abs(point.y - pos.y) <= hit) {
+      return id
+    }
+  }
+  return null
+}
+
 export function pathToSvg(points: DrawingPoint[]): string {
   if (points.length === 0) return ''
   const [first, ...rest] = points
