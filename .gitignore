@@ -1,0 +1,31 @@
+# Dependencies and build
+node_modules/
+app/node_modules/
+app/dist/
+app/dist-single/
+dist/
+dist-ssr/
+
+# Env and local secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local session / tool scratch
+terminals/
+mcps/
+export-preview/
+*.tmp
+.tmp-*

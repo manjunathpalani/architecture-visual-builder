@@ -1,0 +1,479 @@
+{
+  "metadata": {
+    "name": "Enterprise Integration Landscape",
+    "description": "End-to-end integration flow from SaaS platforms through cloud middleware to on-premise ERP",
+    "version": "1.0.0",
+    "updatedAt": "2026-07-05T00:00:00.000Z"
+  },
+  "systems": [
+    {
+      "id": "sys-salesforce",
+      "type": "saas",
+      "label": "Salesforce CRM",
+      "category": "SaaS",
+      "position": { "x": 80, "y": 200 },
+      "properties": {
+        "vendor": "Salesforce",
+        "environment": "Production",
+        "description": "Customer relationship management platform",
+        "gitProvider": "github",
+        "gitRepo": "my-org/crm-integrations",
+        "gitBranch": "main",
+        "gitPath": "connectors/salesforce"
+      }
+    },
+    {
+      "id": "sys-workday",
+      "type": "saas",
+      "label": "Workday HCM",
+      "category": "SaaS",
+      "position": { "x": 80, "y": 400 },
+      "properties": {
+        "vendor": "Workday",
+        "environment": "Production",
+        "description": "Human capital management"
+      }
+    },
+    {
+      "id": "sys-mulesoft",
+      "type": "middleware",
+      "label": "MuleSoft iPaaS",
+      "category": "Middleware",
+      "position": { "x": 400, "y": 300 },
+      "properties": {
+        "vendor": "MuleSoft",
+        "environment": "Cloud",
+        "description": "Integration platform as a service",
+        "gitProvider": "github",
+        "gitRepo": "my-org/integration-platform",
+        "gitBranch": "develop",
+        "gitPath": "mulesoft/flows"
+      },
+      "subDiagram": {
+        "name": "MuleSoft iPaaS Internal Flows",
+        "description": "Internal API flows, transformers, and event publishers",
+        "systems": [
+          {
+            "id": "sub-order-api",
+            "type": "middleware",
+            "label": "Order API Flow",
+            "category": "Middleware",
+            "position": { "x": 80, "y": 120 },
+            "properties": {
+              "description": "Receives Salesforce orders, validates and transforms to SAP format"
+            }
+          },
+          {
+            "id": "sub-employee-sync",
+            "type": "middleware",
+            "label": "Employee Sync Flow",
+            "category": "Middleware",
+            "position": { "x": 80, "y": 300 },
+            "properties": {
+              "description": "Scheduled Workday employee master data sync"
+            }
+          },
+          {
+            "id": "sub-transformer",
+            "type": "cloud",
+            "label": "Data Transformer",
+            "category": "Cloud",
+            "position": { "x": 320, "y": 200 },
+            "properties": {
+              "description": "Canonical data model mapping and enrichment"
+            }
+          },
+          {
+            "id": "sub-event-pub",
+            "type": "aws",
+            "label": "Event Publisher",
+            "category": "AWS",
+            "position": { "x": 560, "y": 200 },
+            "properties": {
+              "vendor": "AWS",
+              "service": "MSK",
+              "description": "Publishes domain events to Kafka"
+            }
+          },
+          {
+            "id": "sub-error-handler",
+            "type": "middleware",
+            "label": "Error Handler",
+            "category": "Middleware",
+            "position": { "x": 320, "y": 380 },
+            "properties": {
+              "description": "Dead-letter queue and retry policies"
+            }
+          }
+        ],
+        "integrations": [
+          {
+            "id": "sub-int-order-transform",
+            "source": "sub-order-api",
+            "target": "sub-transformer",
+            "label": "Order Payload",
+            "direction": "outbound",
+            "protocol": "REST API",
+            "frequency": "real-time",
+            "dataFormat": "JSON",
+            "description": "Validated order sent for transformation"
+          },
+          {
+            "id": "sub-int-employee-transform",
+            "source": "sub-employee-sync",
+            "target": "sub-transformer",
+            "label": "Employee Records",
+            "direction": "outbound",
+            "protocol": "REST API",
+            "frequency": "scheduled",
+            "dataFormat": "JSON",
+            "description": "Batch employee records for mapping"
+          },
+          {
+            "id": "sub-int-transform-events",
+            "source": "sub-transformer",
+            "target": "sub-event-pub",
+            "label": "Domain Events",
+            "direction": "outbound",
+            "protocol": "Kafka",
+            "frequency": "event-driven",
+            "dataFormat": "Avro",
+            "description": "Publish enriched events after transformation"
+          },
+          {
+            "id": "sub-int-order-errors",
+            "source": "sub-order-api",
+            "target": "sub-error-handler",
+            "label": "Failed Orders",
+            "direction": "outbound",
+            "protocol": "REST API",
+            "frequency": "real-time",
+            "dataFormat": "JSON",
+            "description": "Route validation failures to error handler"
+          }
+        ],
+        "drawings": [
+          {
+            "id": "draw-sub-title",
+            "type": "text",
+            "points": [{ "x": 200, "y": 48 }],
+            "color": "#334155",
+            "strokeWidth": 1,
+            "text": "MuleSoft Runtime — Internal Detail",
+            "fontSize": 16
+          },
+          {
+            "id": "draw-sub-boundary",
+            "type": "rectangle",
+            "points": [{ "x": 48, "y": 72 }, { "x": 700, "y": 440 }],
+            "color": "#8b5cf6",
+            "strokeWidth": 2,
+            "fill": "#8b5cf618"
+          },
+          {
+            "id": "draw-sub-inbound",
+            "type": "arrow",
+            "points": [{ "x": 16, "y": 155 }, { "x": 72, "y": 155 }],
+            "color": "#6366f1",
+            "strokeWidth": 2
+          },
+          {
+            "id": "draw-sub-inbound-label",
+            "type": "text",
+            "points": [{ "x": 4, "y": 140 }],
+            "color": "#6366f1",
+            "strokeWidth": 1,
+            "text": "Inbound",
+            "fontSize": 11
+          },
+          {
+            "id": "draw-sub-events-out",
+            "type": "arrow",
+            "points": [{ "x": 680, "y": 230 }, { "x": 740, "y": 230 }],
+            "color": "#10b981",
+            "strokeWidth": 2
+          },
+          {
+            "id": "draw-sub-events-label",
+            "type": "text",
+            "points": [{ "x": 744, "y": 224 }],
+            "color": "#10b981",
+            "strokeWidth": 1,
+            "text": "Events →",
+            "fontSize": 11
+          },
+          {
+            "id": "draw-sub-dlq-note",
+            "type": "path",
+            "points": [
+              { "x": 300, "y": 360 },
+              { "x": 310, "y": 352 },
+              { "x": 318, "y": 358 },
+              { "x": 328, "y": 348 }
+            ],
+            "color": "#ef4444",
+            "strokeWidth": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "sys-apigw",
+      "type": "aws",
+      "label": "AWS API Gateway",
+      "category": "AWS",
+      "position": { "x": 400, "y": 80 },
+      "properties": {
+        "vendor": "AWS",
+        "service": "API Gateway",
+        "componentType": "api",
+        "region": "us-east-1",
+        "description": "API management and routing",
+        "interfaceSpec": "{\n  \"title\": \"Partner API Gateway\",\n  \"version\": \"1.0.0\",\n  \"baseUrl\": \"https://api.example.com/v1\",\n  \"description\": \"Public partner integration APIs\",\n  \"specFormat\": \"simple\",\n  \"endpoints\": [\n    { \"method\": \"GET\", \"path\": \"/partners\", \"summary\": \"List partners\" },\n    { \"method\": \"POST\", \"path\": \"/orders\", \"summary\": \"Submit order\" },\n    { \"method\": \"GET\", \"path\": \"/orders/{id}\", \"summary\": \"Get order status\" }\n  ]\n}"
+      }
+    },
+    {
+      "id": "sys-kafka",
+      "type": "aws",
+      "label": "Amazon MSK (Kafka)",
+      "category": "AWS",
+      "position": { "x": 400, "y": 520 },
+      "properties": {
+        "vendor": "AWS",
+        "service": "MSK",
+        "region": "us-east-1",
+        "description": "Event streaming platform"
+      }
+    },
+    {
+      "id": "sys-azure-logic",
+      "type": "azure",
+      "label": "Azure Logic Apps",
+      "category": "Azure",
+      "position": { "x": 560, "y": 80 },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "Logic Apps",
+        "region": "eastus",
+        "description": "Workflow orchestration for B2B integrations"
+      }
+    },
+    {
+      "id": "sys-sap",
+      "type": "onpremise",
+      "label": "SAP ERP",
+      "category": "On-Premise",
+      "position": { "x": 720, "y": 200 },
+      "properties": {
+        "vendor": "SAP",
+        "environment": "On-Premise DC",
+        "description": "Core enterprise resource planning"
+      }
+    },
+    {
+      "id": "sys-legacy",
+      "type": "onpremise",
+      "label": "Legacy Mainframe",
+      "category": "On-Premise",
+      "position": { "x": 720, "y": 420 },
+      "properties": {
+        "environment": "On-Premise DC",
+        "description": "Legacy billing and inventory system"
+      }
+    },
+    {
+      "id": "sys-dw",
+      "type": "database",
+      "label": "Snowflake DW",
+      "category": "Database",
+      "position": { "x": 720, "y": 80 },
+      "properties": {
+        "vendor": "Snowflake",
+        "environment": "Cloud",
+        "description": "Enterprise data warehouse"
+      }
+    }
+  ],
+  "drawings": [
+    {
+      "id": "draw-saas-zone",
+      "type": "rectangle",
+      "points": [{ "x": 40, "y": 140 }, { "x": 280, "y": 500 }],
+      "color": "#6366f1",
+      "strokeWidth": 2,
+      "fill": "#6366f110"
+    },
+    {
+      "id": "draw-saas-label",
+      "type": "text",
+      "points": [{ "x": 52, "y": 168 }],
+      "color": "#6366f1",
+      "strokeWidth": 1,
+      "text": "SaaS Zone",
+      "fontSize": 13
+    },
+    {
+      "id": "draw-cloud-zone",
+      "type": "rectangle",
+      "points": [{ "x": 320, "y": 40 }, { "x": 660, "y": 580 }],
+      "color": "#0ea5e9",
+      "strokeWidth": 2,
+      "fill": "#0ea5e910"
+    },
+    {
+      "id": "draw-cloud-label",
+      "type": "text",
+      "points": [{ "x": 332, "y": 68 }],
+      "color": "#0ea5e9",
+      "strokeWidth": 1,
+      "text": "Integration Hub",
+      "fontSize": 13
+    },
+    {
+      "id": "draw-onprem-zone",
+      "type": "rectangle",
+      "points": [{ "x": 680, "y": 40 }, { "x": 900, "y": 500 }],
+      "color": "#f59e0b",
+      "strokeWidth": 2,
+      "fill": "#f59e0b10"
+    },
+    {
+      "id": "draw-onprem-label",
+      "type": "text",
+      "points": [{ "x": 692, "y": 68 }],
+      "color": "#f59e0b",
+      "strokeWidth": 1,
+      "text": "On-Premise",
+      "fontSize": 13
+    },
+    {
+      "id": "draw-drill-hint",
+      "type": "arrow",
+      "points": [{ "x": 520, "y": 340 }, { "x": 480, "y": 310 }],
+      "color": "#8b5cf6",
+      "strokeWidth": 2
+    },
+    {
+      "id": "draw-drill-hint-text",
+      "type": "text",
+      "points": [{ "x": 524, "y": 352 }],
+      "color": "#8b5cf6",
+      "strokeWidth": 1,
+      "text": "double-click to drill in",
+      "fontSize": 11
+    }
+  ],
+  "integrations": [
+    {
+      "id": "int-sf-orders",
+      "source": "sys-salesforce",
+      "target": "sys-mulesoft",
+      "label": "Customer Orders",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Salesforce pushes new orders to integration layer"
+    },
+    {
+      "id": "int-wd-employees",
+      "source": "sys-workday",
+      "target": "sys-mulesoft",
+      "label": "Employee Data",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "scheduled",
+      "dataFormat": "JSON",
+      "description": "Daily employee master data sync"
+    },
+    {
+      "id": "int-mule-sap",
+      "source": "sys-mulesoft",
+      "target": "sys-sap",
+      "label": "Order to ERP",
+      "direction": "outbound",
+      "protocol": "SOAP",
+      "frequency": "near-real-time",
+      "dataFormat": "XML",
+      "description": "Transform and route orders to SAP"
+    },
+    {
+      "id": "int-mule-legacy",
+      "source": "sys-mulesoft",
+      "target": "sys-legacy",
+      "label": "Inventory Sync",
+      "direction": "bidirectional",
+      "protocol": "SFTP",
+      "frequency": "batch",
+      "dataFormat": "CSV",
+      "description": "Nightly inventory reconciliation with mainframe"
+    },
+    {
+      "id": "int-api-partner",
+      "source": "sys-apigw",
+      "target": "sys-mulesoft",
+      "label": "Partner APIs",
+      "direction": "inbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "External partner integrations via API gateway",
+      "interfaceSpec": "{\n  \"title\": \"Partner APIs Inbound\",\n  \"version\": \"1.0.0\",\n  \"specFormat\": \"simple\",\n  \"endpoints\": [\n    { \"method\": \"POST\", \"path\": \"/webhooks/partner\", \"summary\": \"Partner webhook callback\" }\n  ]\n}"
+    },
+    {
+      "id": "int-azure-workflow",
+      "source": "sys-azure-logic",
+      "target": "sys-mulesoft",
+      "label": "B2B Workflows",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "event-driven",
+      "dataFormat": "JSON",
+      "description": "Azure Logic Apps orchestrates partner onboarding flows"
+    },
+    {
+      "id": "int-kafka-events",
+      "source": "sys-mulesoft",
+      "target": "sys-kafka",
+      "label": "Business Events",
+      "direction": "outbound",
+      "protocol": "Kafka",
+      "frequency": "event-driven",
+      "dataFormat": "Avro",
+      "description": "Publish domain events for downstream consumers"
+    },
+    {
+      "id": "int-dw-analytics",
+      "source": "sys-kafka",
+      "target": "sys-dw",
+      "label": "Analytics Pipeline",
+      "direction": "outbound",
+      "protocol": "Kafka",
+      "frequency": "event-driven",
+      "dataFormat": "Parquet",
+      "description": "Stream events into data warehouse for reporting"
+    },
+    {
+      "id": "int-sap-status",
+      "source": "sys-sap",
+      "target": "sys-mulesoft",
+      "label": "Order Status",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "ERP order fulfillment status back to Salesforce"
+    },
+    {
+      "id": "int-status-sf",
+      "source": "sys-mulesoft",
+      "target": "sys-salesforce",
+      "label": "Status Update",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Update CRM with ERP fulfillment status"
+    }
+  ]
+}

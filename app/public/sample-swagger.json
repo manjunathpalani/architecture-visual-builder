@@ -1,0 +1,79 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Orders API",
+    "version": "1.2.0",
+    "description": "Sample partner order API used to demonstrate the Swagger injector."
+  },
+  "servers": [
+    { "url": "https://api.example.com/v1" }
+  ],
+  "tags": [
+    { "name": "Orders", "description": "Order lifecycle" },
+    { "name": "Partners", "description": "Partner directory" },
+    { "name": "Health", "description": "Liveness" }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/partners": {
+      "get": {
+        "tags": ["Partners"],
+        "summary": "List partners",
+        "responses": { "200": { "description": "Partner list" } }
+      },
+      "post": {
+        "tags": ["Partners"],
+        "summary": "Register partner",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "region": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/orders": {
+      "get": {
+        "tags": ["Orders"],
+        "summary": "List orders",
+        "responses": { "200": { "description": "Order list" } }
+      },
+      "post": {
+        "tags": ["Orders"],
+        "summary": "Submit order",
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "tags": ["Orders"],
+        "summary": "Get order",
+        "responses": { "200": { "description": "Order" } }
+      },
+      "patch": {
+        "tags": ["Orders"],
+        "summary": "Update order",
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "delete": {
+        "tags": ["Orders"],
+        "summary": "Cancel order",
+        "responses": { "204": { "description": "Cancelled" } }
+      }
+    }
+  }
+}

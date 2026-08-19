@@ -1,0 +1,232 @@
+{
+  "metadata": {
+    "name": "Enterprise Integration Landscape",
+    "description": "End-to-end integration flow from SaaS platforms through cloud middleware to on-premise ERP",
+    "version": "1.0.0",
+    "updatedAt": "2026-07-05T00:00:00.000Z"
+  },
+  "systems": [
+    {
+      "id": "sys-salesforce",
+      "type": "saas",
+      "label": "Salesforce CRM",
+      "category": "SaaS",
+      "position": { "x": 80, "y": 200 },
+      "properties": {
+        "vendor": "Salesforce",
+        "environment": "Production",
+        "description": "Customer relationship management platform"
+      }
+    },
+    {
+      "id": "sys-workday",
+      "type": "saas",
+      "label": "Workday HCM",
+      "category": "SaaS",
+      "position": { "x": 80, "y": 400 },
+      "properties": {
+        "vendor": "Workday",
+        "environment": "Production",
+        "description": "Human capital management"
+      }
+    },
+    {
+      "id": "sys-mulesoft",
+      "type": "middleware",
+      "label": "MuleSoft iPaaS",
+      "category": "Middleware",
+      "position": { "x": 400, "y": 300 },
+      "properties": {
+        "vendor": "MuleSoft",
+        "environment": "Cloud",
+        "description": "Integration platform as a service"
+      }
+    },
+    {
+      "id": "sys-apigw",
+      "type": "aws",
+      "label": "AWS API Gateway",
+      "category": "AWS",
+      "position": { "x": 400, "y": 80 },
+      "properties": {
+        "vendor": "AWS",
+        "service": "API Gateway",
+        "region": "us-east-1",
+        "description": "API management and routing"
+      }
+    },
+    {
+      "id": "sys-kafka",
+      "type": "aws",
+      "label": "Amazon MSK (Kafka)",
+      "category": "AWS",
+      "position": { "x": 400, "y": 520 },
+      "properties": {
+        "vendor": "AWS",
+        "service": "MSK",
+        "region": "us-east-1",
+        "description": "Event streaming platform"
+      }
+    },
+    {
+      "id": "sys-azure-logic",
+      "type": "azure",
+      "label": "Azure Logic Apps",
+      "category": "Azure",
+      "position": { "x": 560, "y": 80 },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "Logic Apps",
+        "region": "eastus",
+        "description": "Workflow orchestration for B2B integrations"
+      }
+    },
+    {
+      "id": "sys-sap",
+      "type": "onpremise",
+      "label": "SAP ERP",
+      "category": "On-Premise",
+      "position": { "x": 720, "y": 200 },
+      "properties": {
+        "vendor": "SAP",
+        "environment": "On-Premise DC",
+        "description": "Core enterprise resource planning"
+      }
+    },
+    {
+      "id": "sys-legacy",
+      "type": "onpremise",
+      "label": "Legacy Mainframe",
+      "category": "On-Premise",
+      "position": { "x": 720, "y": 420 },
+      "properties": {
+        "environment": "On-Premise DC",
+        "description": "Legacy billing and inventory system"
+      }
+    },
+    {
+      "id": "sys-dw",
+      "type": "database",
+      "label": "Snowflake DW",
+      "category": "Database",
+      "position": { "x": 720, "y": 80 },
+      "properties": {
+        "vendor": "Snowflake",
+        "environment": "Cloud",
+        "description": "Enterprise data warehouse"
+      }
+    }
+  ],
+  "integrations": [
+    {
+      "id": "int-sf-orders",
+      "source": "sys-salesforce",
+      "target": "sys-mulesoft",
+      "label": "Customer Orders",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Salesforce pushes new orders to integration layer"
+    },
+    {
+      "id": "int-wd-employees",
+      "source": "sys-workday",
+      "target": "sys-mulesoft",
+      "label": "Employee Data",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "scheduled",
+      "dataFormat": "JSON",
+      "description": "Daily employee master data sync"
+    },
+    {
+      "id": "int-mule-sap",
+      "source": "sys-mulesoft",
+      "target": "sys-sap",
+      "label": "Order to ERP",
+      "direction": "outbound",
+      "protocol": "SOAP",
+      "frequency": "near-real-time",
+      "dataFormat": "XML",
+      "description": "Transform and route orders to SAP"
+    },
+    {
+      "id": "int-mule-legacy",
+      "source": "sys-mulesoft",
+      "target": "sys-legacy",
+      "label": "Inventory Sync",
+      "direction": "bidirectional",
+      "protocol": "SFTP",
+      "frequency": "batch",
+      "dataFormat": "CSV",
+      "description": "Nightly inventory reconciliation with mainframe"
+    },
+    {
+      "id": "int-api-partner",
+      "source": "sys-apigw",
+      "target": "sys-mulesoft",
+      "label": "Partner APIs",
+      "direction": "inbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "External partner integrations via API gateway"
+    },
+    {
+      "id": "int-azure-workflow",
+      "source": "sys-azure-logic",
+      "target": "sys-mulesoft",
+      "label": "B2B Workflows",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "event-driven",
+      "dataFormat": "JSON",
+      "description": "Azure Logic Apps orchestrates partner onboarding flows"
+    },
+    {
+      "id": "int-kafka-events",
+      "source": "sys-mulesoft",
+      "target": "sys-kafka",
+      "label": "Business Events",
+      "direction": "outbound",
+      "protocol": "Kafka",
+      "frequency": "event-driven",
+      "dataFormat": "Avro",
+      "description": "Publish domain events for downstream consumers"
+    },
+    {
+      "id": "int-dw-analytics",
+      "source": "sys-kafka",
+      "target": "sys-dw",
+      "label": "Analytics Pipeline",
+      "direction": "outbound",
+      "protocol": "Kafka",
+      "frequency": "event-driven",
+      "dataFormat": "Parquet",
+      "description": "Stream events into data warehouse for reporting"
+    },
+    {
+      "id": "int-sap-status",
+      "source": "sys-sap",
+      "target": "sys-mulesoft",
+      "label": "Order Status",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "ERP order fulfillment status back to Salesforce"
+    },
+    {
+      "id": "int-status-sf",
+      "source": "sys-mulesoft",
+      "target": "sys-salesforce",
+      "label": "Status Update",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Update CRM with ERP fulfillment status"
+    }
+  ]
+}
