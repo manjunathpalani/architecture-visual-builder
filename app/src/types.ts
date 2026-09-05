@@ -4,6 +4,7 @@ export type SystemType =
   | 'saas'
   | 'aws'
   | 'azure'
+  | 'powerplatform'
   | 'cloud'
   | 'onpremise'
   | 'middleware'
@@ -84,6 +85,22 @@ export type IntegrationFrequency =
   | 'event-driven'
   | 'scheduled'
 
+export type EdgeRouting = 'bezier' | 'smoothstep' | 'step' | 'straight'
+
+export const EDGE_ROUTING_OPTIONS: Array<{ id: EdgeRouting; label: string; hint: string }> = [
+  { id: 'bezier', label: 'Curved', hint: 'Smooth curve between boxes' },
+  { id: 'smoothstep', label: 'Rounded orthogonal', hint: 'Right-angle turns with rounded corners' },
+  { id: 'step', label: 'Orthogonal', hint: 'Right-angle routing' },
+  { id: 'straight', label: 'Straight', hint: 'Direct line' },
+]
+
+export function parseEdgeRouting(value?: string): EdgeRouting {
+  if (value === 'bezier' || value === 'smoothstep' || value === 'step' || value === 'straight') {
+    return value
+  }
+  return 'bezier'
+}
+
 export interface Position {
   x: number
   y: number
@@ -100,6 +117,13 @@ export interface SystemProperties {
   height?: string
   gitAzureProject?: string
   gitAzureRepoId?: string
+  jiraIssueKey?: string
+  jiraIssueSummary?: string
+  jiraIssueUrl?: string
+  adoProject?: string
+  adoWorkItemId?: string
+  adoWorkItemTitle?: string
+  adoWorkItemUrl?: string
   [key: string]: string | undefined
 }
 
@@ -124,6 +148,8 @@ export interface Integration {
   id: string
   source: string
   target: string
+  sourceHandle?: string
+  targetHandle?: string
   label: string
   direction: IntegrationDirection
   protocol: IntegrationProtocol
@@ -133,6 +159,15 @@ export interface Integration {
   interfaceSpec?: string
   color?: string
   changeStatus?: 'unchanged' | 'new' | 'modified' | 'retired'
+  routing?: EdgeRouting
+  waypoints?: Position[]
+  jiraIssueKey?: string
+  jiraIssueSummary?: string
+  jiraIssueUrl?: string
+  adoProject?: string
+  adoWorkItemId?: string
+  adoWorkItemTitle?: string
+  adoWorkItemUrl?: string
 }
 
 export interface ArchitectureMetadata {
@@ -142,11 +177,32 @@ export interface ArchitectureMetadata {
   updatedAt: string
 }
 
+export type AuditKind =
+  | 'add'
+  | 'remove'
+  | 'update'
+  | 'move'
+  | 'connect'
+  | 'draw'
+  | 'import'
+  | 'ai'
+  | 'navigate'
+
+export interface AuditEvent {
+  id: string
+  at: string
+  actor: string
+  kind: AuditKind
+  summary: string
+  details: string[]
+}
+
 export interface ArchitectureDocument {
   metadata: ArchitectureMetadata
   systems: SystemNode[]
   integrations: Integration[]
   drawings?: DrawingElement[]
+  audit?: AuditEvent[]
 }
 
 export interface PaletteItem {
@@ -165,6 +221,7 @@ export const SYSTEM_TYPE_CONFIG: Record<
   saas: { label: 'SaaS', color: '#6366f1', icon: '☁️' },
   aws: { label: 'AWS', color: '#ff9900', icon: '🟠' },
   azure: { label: 'Azure', color: '#0078d4', icon: '🔷' },
+  powerplatform: { label: 'Power Platform', color: '#742774', icon: '⬡' },
   cloud: { label: 'Cloud', color: '#0ea5e9', icon: '⛅' },
   onpremise: { label: 'On-Premise', color: '#f59e0b', icon: '🏢' },
   middleware: { label: 'Middleware', color: '#8b5cf6', icon: '🔗' },
@@ -180,6 +237,7 @@ export const PALETTE_CATEGORY_ORDER = [
   'SaaS',
   'AWS',
   'Azure',
+  'Power Platform',
   'Cloud',
   'Infrastructure',
   'On-Premise',
@@ -195,6 +253,8 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { type: 'saas', label: 'Salesforce', category: 'SaaS', defaultProperties: { vendor: 'Salesforce' } },
   { type: 'saas', label: 'Workday', category: 'SaaS', defaultProperties: { vendor: 'Workday' } },
   { type: 'saas', label: 'ServiceNow', category: 'SaaS', defaultProperties: { vendor: 'ServiceNow' } },
+  { type: 'saas', label: 'Jira', category: 'SaaS', defaultProperties: { vendor: 'Atlassian', service: 'Jira' } },
+  { type: 'saas', label: 'Azure DevOps', category: 'SaaS', defaultProperties: { vendor: 'Microsoft Azure', service: 'Azure DevOps' } },
 
   { type: 'aws', label: 'AWS Lambda', category: 'AWS', defaultProperties: { vendor: 'AWS', service: 'Lambda' } },
   { type: 'aws', label: 'Amazon S3', category: 'AWS', defaultProperties: { vendor: 'AWS', service: 'S3' } },
@@ -232,6 +292,20 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { type: 'azure', label: 'Azure Firewall', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Firewall' } },
   { type: 'azure', label: 'Application Gateway', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Application Gateway', componentType: 'api' } },
   { type: 'azure', label: 'Azure Monitor', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Monitor' } },
+
+  { type: 'powerplatform', label: 'Power Platform', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Platform', color: '#742774' } },
+  { type: 'powerplatform', label: 'Power Apps', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Apps', color: '#742774' } },
+  { type: 'powerplatform', label: 'Canvas App', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Canvas App', color: '#742774' } },
+  { type: 'powerplatform', label: 'Model-driven App', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Model-driven App', color: '#5B2C6F' } },
+  { type: 'powerplatform', label: 'Power Automate', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Automate', color: '#0066FF' } },
+  { type: 'powerplatform', label: 'Power Automate Desktop', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Automate Desktop', color: '#0066FF' } },
+  { type: 'powerplatform', label: 'Power BI', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power BI', color: '#B45309' } },
+  { type: 'powerplatform', label: 'Power Pages', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Pages', color: '#0EA5E9' } },
+  { type: 'powerplatform', label: 'Dataverse', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Dataverse', color: '#0284C7' } },
+  { type: 'powerplatform', label: 'Copilot Studio', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Copilot Studio', color: '#5B2C6F' } },
+  { type: 'powerplatform', label: 'AI Builder', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'AI Builder', color: '#C43B8C' } },
+  { type: 'powerplatform', label: 'Custom Connector', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Custom Connector', color: '#742774', componentType: 'api' } },
+  { type: 'powerplatform', label: 'On-premises Data Gateway', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Data Gateway', color: '#5B2C6F' } },
 
   { type: 'cloud', label: 'GCP Service', category: 'Cloud', defaultProperties: { vendor: 'Google Cloud' } },
   { type: 'cloud', label: 'API Component', category: 'Cloud', defaultProperties: { componentType: 'api' } },

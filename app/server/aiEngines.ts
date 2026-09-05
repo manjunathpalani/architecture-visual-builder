@@ -14,6 +14,8 @@ export interface EngineRequest {
   model: string
   azureEndpoint?: string
   azureDeployment?: string
+  /** Override the diagram-drawing system prompt (e.g. capability analysis). */
+  systemPrompt?: string
 }
 
 const SYSTEM_PROMPT = `You are an enterprise integration architect inside Architecture Visual Builder.
@@ -29,9 +31,9 @@ JSON shape:
   "systems": [
     {
       "id": "kebab-case-id",
-      "type": "saas|aws|azure|cloud|onpremise|middleware|database|external|diagram|note|group",
+      "type": "saas|aws|azure|powerplatform|cloud|onpremise|middleware|database|external|diagram|note|group",
       "label": "Display name",
-      "category": "SaaS|AWS|Azure|Cloud|On-Premise|Middleware|Database|External|Software Engineering",
+      "category": "SaaS|AWS|Azure|Power Platform|Cloud|On-Premise|Middleware|Database|External|Software Engineering",
       "position": { "x": 80, "y": 80 },
       "properties": {
         "vendor": "optional",
@@ -64,10 +66,46 @@ Rules:
 - Prefer left-to-right flow: channels/SaaS -> middleware/API -> cloud services -> on-premise/systems of record -> data.
 - Give every system a useful description.
 - If the user mentions APIs, mark those systems with properties.componentType = "api".
-- Use real product names when the user names them (Salesforce, SAP, MuleSoft, AWS API Gateway, etc.).
+- Use real product names when the user names them (Salesforce, SAP, MuleSoft, AWS API Gateway, Power Apps, Dataverse, etc.).
+- Power Platform products (Power Apps, Power Automate, Power BI, Power Pages, Dataverse, Copilot Studio, AI Builder, data gateway) use type "powerplatform".
+- For GenAI / RAG / agent / MLOps diagrams use real building blocks (orchestrator, vector index, LLM gateway, feature store, MCP tools) and type "cloud", "middleware", or "database" as appropriate.
 - Do not invent credentials or secrets.
 - If the user is refining an existing architecture, keep stable ids when the same systems remain.
 - If images are attached, treat them as the source of truth: read every box, label, connector, and grouping, then recreate that landscape. Use the text prompt only to clarify or adjust what you see.`
+
+export const ANALYSIS_SYSTEM_PROMPT = `You are an enterprise architect reviewing a capability and integration landscape.
+Return ONLY valid JSON. No markdown, no commentary, no code fences.
+
+JSON shape:
+{
+  "title": "short review title",
+  "summary": "3-5 sentence executive assessment of the landscape",
+  "verdict": "strong" | "balanced" | "at-risk",
+  "capabilities": [
+    {
+      "name": "capability or component name",
+      "related": ["system labels this covers"],
+      "assessment": "one sentence on fitness for purpose",
+      "pros": ["concrete strength", "another strength"],
+      "cons": ["concrete weakness, risk, or gap"]
+    }
+  ],
+  "risks": ["cross-cutting risk"],
+  "recommendations": ["specific next action"]
+}
+
+Rules:
+- Group the architecture into 4 to 8 capabilities (not one card per box unless the diagram is tiny).
+- Every capability MUST have at least 2 pros and 2 cons. Be specific to the named systems, protocols, and flows — no generic filler.
+- Pros are strengths of the current design. Cons are gaps, coupling, single points of failure, cost, security, or operational burden.
+- If the user names a focus lens (security, integration, cost, data, AI, resilience), weight the review toward that lens but still cover the landscape.
+- If they name a system to emphasize, give that system (or the capability it belongs to) a dedicated card.
+- verdict: strong = sound with minor gaps; balanced = workable with material tradeoffs; at-risk = serious gaps or fragility.
+- Do not invent systems that are not in the architecture. Do not invent credentials.`
+
+function activeSystemPrompt(request: EngineRequest): string {
+  return request.systemPrompt?.trim() || SYSTEM_PROMPT
+}
 
 export function userMessage(prompt: string, context?: string, hasImages = false): string {
   const instruction = prompt.trim()
@@ -101,6 +139,78 @@ export async function completeDiagram(request: EngineRequest): Promise<string> {
   }
 }
 
+export async function completeAnalysis(request: EngineRequest): Promise<string> {
+  return completeDiagram({ ...request, systemPrompt: ANALYSIS_SYSTEM_PROMPT })
+}
+
+export async function verifyProviderKey(request: {
+  provider: AiProviderId
+  apiKey: string
+  azureEndpoint?: string
+  azureDeployment?: string
+}): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
+  const key = request.apiKey.trim()
+  if (!key) return { ok: false, message: 'Enter an API key to test.' }
+
+  try {
+    switch (request.provider) {
+      case 'spacexai':
+        await getJson('https://api.x.ai/v1/models', {
+          headers: { Authorization: `Bearer ${key}` },
+          label: 'SpaceXAI',
+        })
+        return { ok: true, message: 'Verified · SpaceXAI accepted the key' }
+      case 'openai':
+        await getJson('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${key}` },
+          label: 'OpenAI',
+        })
+        return { ok: true, message: 'Verified · OpenAI accepted the key' }
+      case 'anthropic':
+        await getJson('https://api.anthropic.com/v1/models', {
+          headers: {
+            'x-api-key': key,
+            'anthropic-version': '2023-06-01',
+          },
+          label: 'Anthropic',
+        })
+        return { ok: true, message: 'Verified · Anthropic accepted the key' }
+      case 'gemini': {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`
+        await getJson(url, { headers: {}, label: 'Gemini' })
+        return { ok: true, message: 'Verified · Gemini accepted the key' }
+      }
+      case 'azure-openai': {
+        const endpoint = (request.azureEndpoint ?? '').replace(/\/+$/, '')
+        const deployment = request.azureDeployment?.trim()
+        if (!endpoint || !/^https?:\/\//i.test(endpoint)) {
+          return { ok: false, message: 'Azure OpenAI needs a valid endpoint URL.' }
+        }
+        if (!deployment) {
+          return { ok: false, message: 'Azure OpenAI needs a deployment name.' }
+        }
+        const url = `${endpoint}/openai/deployments/${encodeURIComponent(deployment)}/chat/completions?api-version=2024-10-21`
+        await postJson(url, {
+          headers: { 'api-key': key },
+          body: {
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+          },
+          label: 'Azure OpenAI',
+        })
+        return { ok: true, message: `Verified · Azure deployment ${deployment} is reachable` }
+      }
+      default:
+        return { ok: false, message: 'Unknown AI engine' }
+    }
+  } catch (err) {
+    return {
+      ok: false,
+      message: err instanceof Error ? err.message : 'Key test failed',
+    }
+  }
+}
+
 async function completeSpaceXAI(request: EngineRequest): Promise<string> {
   const text = userMessage(request.prompt, request.context, Boolean(request.images?.length))
   const userContent = request.images?.length
@@ -120,7 +230,7 @@ async function completeSpaceXAI(request: EngineRequest): Promise<string> {
       model: request.model,
       store: false,
       input: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: activeSystemPrompt(request) },
         { role: 'user', content: userContent },
       ],
     },
@@ -151,7 +261,7 @@ async function completeAnthropic(request: EngineRequest): Promise<string> {
     body: {
       model: request.model,
       max_tokens: 8192,
-      system: SYSTEM_PROMPT,
+      system: activeSystemPrompt(request),
       messages: [{ role: 'user', content: anthropicUserContent(request) }],
     },
     label: 'Anthropic',
@@ -166,7 +276,7 @@ async function completeGemini(request: EngineRequest): Promise<string> {
   const payload = await postJson(url, {
     headers: {},
     body: {
-      system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      system_instruction: { parts: [{ text: activeSystemPrompt(request) }] },
       contents: [{ role: 'user', parts: geminiParts(request) }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0.3 },
     },
@@ -211,7 +321,7 @@ function chatCompletionBody(request: EngineRequest) {
     temperature: 0.3,
     response_format: { type: 'json_object' },
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: activeSystemPrompt(request) },
       { role: 'user', content },
     ],
   }
@@ -247,20 +357,40 @@ function geminiParts(request: EngineRequest) {
   return parts
 }
 
+async function getJson(
+  url: string,
+  options: { headers: Record<string, string>; label: string },
+): Promise<unknown> {
+  return requestJson(url, { ...options, method: 'GET', timeoutMs: 15000 })
+}
+
 async function postJson(
   url: string,
   options: { headers: Record<string, string>; body: unknown; label: string },
 ): Promise<unknown> {
+  return requestJson(url, { ...options, method: 'POST', timeoutMs: 180000 })
+}
+
+async function requestJson(
+  url: string,
+  options: {
+    method: 'GET' | 'POST'
+    headers: Record<string, string>
+    body?: unknown
+    label: string
+    timeoutMs: number
+  },
+): Promise<unknown> {
   let response: Response
   try {
     response = await fetch(url, {
-      method: 'POST',
+      method: options.method,
       headers: {
-        'Content-Type': 'application/json',
+        ...(options.method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
         ...options.headers,
       },
-      body: JSON.stringify(options.body),
-      signal: AbortSignal.timeout(180000),
+      body: options.method === 'POST' ? JSON.stringify(options.body) : undefined,
+      signal: AbortSignal.timeout(options.timeoutMs),
     })
   } catch (err) {
     const message = err instanceof Error ? err.message : `${options.label} request failed`
@@ -273,9 +403,11 @@ async function postJson(
       status: response.status,
     })
   }
+  if (!raw.trim()) return {}
   try {
     return JSON.parse(raw)
   } catch {
+    if (options.method === 'GET') return {}
     throw new Error(`${options.label} returned a non-JSON response`)
   }
 }

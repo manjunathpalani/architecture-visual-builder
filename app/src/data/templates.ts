@@ -11,6 +11,12 @@ import {
   createHybridInfrastructure,
   createKubernetesPlatform,
 } from './infrastructureTemplates'
+import {
+  createAgenticAi,
+  createAzureAiLanding,
+  createEnterpriseRag,
+  createMlOpsPlatform,
+} from './aiTemplates'
 import sampleArchitecture from './sample-architecture.json'
 
 export type ArchitectureTemplateId =
@@ -28,12 +34,17 @@ export type ArchitectureTemplateId =
   | 'infra-azure'
   | 'infra-kubernetes'
   | 'infra-hybrid'
+  | 'ai-rag'
+  | 'ai-mlops'
+  | 'ai-agents'
+  | 'ai-azure'
 
 export type ArchitectureTemplateCategory =
   | 'General'
   | 'Architecture Style'
   | 'Industry'
   | 'Infrastructure'
+  | 'AI'
   | 'Integration'
 
 export interface TemplateSampleStats {
@@ -2283,6 +2294,70 @@ export const ARCHITECTURE_TEMPLATES: ArchitectureTemplate[] = [
     create: createHybridInfrastructure,
   },
   {
+    id: 'ai-rag',
+    name: 'Enterprise RAG Copilot',
+    category: 'AI',
+    description:
+      'GenAI sample: channels and APIM in front of a prompt orchestrator, RAG index, multi-model LLM gateway, and identity-aware knowledge sources.',
+    highlights: [
+      'Copilot UI · APIM · orchestrator',
+      'Vector index · indexer · ACLs',
+      'LLM gateway drill-in (SpaceXAI + Azure OpenAI)',
+    ],
+    icon: '✦',
+    hasSampleDesign: true,
+    sampleLabel: 'Grounded enterprise copilot sample',
+    create: createEnterpriseRag,
+  },
+  {
+    id: 'ai-mlops',
+    name: 'MLOps Platform',
+    category: 'AI',
+    description:
+      'ML lifecycle sample: lake and feature store, training and experiments, model registry, online/batch serving, and drift monitoring.',
+    highlights: [
+      'Lake · feature store',
+      'Train · registry · CI/CD',
+      'Online predict · batch score · drift',
+    ],
+    icon: '◎',
+    hasSampleDesign: true,
+    sampleLabel: 'Model lifecycle platform sample',
+    create: createMlOpsPlatform,
+  },
+  {
+    id: 'ai-agents',
+    name: 'Agentic AI Runtime',
+    category: 'AI',
+    description:
+      'Agent sample: workbench, planner/executor, MCP tool gateway, enterprise APIs, memory, LLM, and human-in-the-loop.',
+    highlights: [
+      'Planner · executor · policy',
+      'MCP / tool gateway',
+      'Memory · audit · HITL',
+    ],
+    icon: '🤖',
+    hasSampleDesign: true,
+    sampleLabel: 'Tool-using agent runtime sample',
+    create: createAgenticAi,
+  },
+  {
+    id: 'ai-azure',
+    name: 'Azure AI Landing Zone',
+    category: 'AI',
+    description:
+      'Azure AI platform sample: Front Door, APIM, AI Foundry, Azure OpenAI, AI Search, Document Intelligence, Content Safety, and Entra ID.',
+    highlights: [
+      'Foundry · Azure OpenAI',
+      'AI Search · Document Intelligence',
+      'Copilot Studio channel',
+    ],
+    icon: '🔷',
+    hasSampleDesign: true,
+    sampleLabel: 'Azure AI Foundry platform sample',
+    create: createAzureAiLanding,
+  },
+  {
     id: 'integration',
     name: 'Enterprise Integration',
     category: 'Integration',
@@ -2305,6 +2380,7 @@ export const TEMPLATE_CATEGORY_ORDER: ArchitectureTemplateCategory[] = [
   'Architecture Style',
   'Industry',
   'Infrastructure',
+  'AI',
   'Integration',
 ]
 

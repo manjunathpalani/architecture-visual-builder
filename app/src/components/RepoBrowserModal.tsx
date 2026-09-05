@@ -250,7 +250,7 @@ export function RepoBrowserModal({
         </div>
 
         {!isGitHubConnected() && !isAzureDevOpsConnected() && (
-          <p className="repo-browser-warn">Connect GitHub or Azure DevOps in Git Integrations first.</p>
+          <p className="repo-browser-warn">Connect GitHub or Azure DevOps in Settings → Git first.</p>
         )}
 
         {error && <div className="json-error">{error}</div>}

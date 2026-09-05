@@ -1,0 +1,736 @@
+{
+  "metadata": {
+    "name": "Enterprise RAG Copilot",
+    "description": "Sample GenAI architecture: channels and APIM in front of a prompt orchestrator, RAG index, multi-model LLM gateway, and identity-aware knowledge sources.",
+    "version": "1.0.0",
+    "updatedAt": "2026-09-05T00:00:00.000Z"
+  },
+  "systems": [
+    {
+      "id": "ai-users",
+      "type": "diagram",
+      "label": "Employees",
+      "category": "Software Engineering",
+      "position": {
+        "x": 40,
+        "y": 100
+      },
+      "properties": {
+        "shape": "c4-person",
+        "description": "Internal users asking grounded questions in chat and apps"
+      }
+    },
+    {
+      "id": "ai-customers",
+      "type": "diagram",
+      "label": "Customers",
+      "category": "Software Engineering",
+      "position": {
+        "x": 40,
+        "y": 280
+      },
+      "properties": {
+        "shape": "c4-person",
+        "description": "External users on the support copilot (restricted corpus)"
+      }
+    },
+    {
+      "id": "ai-copilot-studio",
+      "type": "powerplatform",
+      "label": "Copilot Studio",
+      "category": "Power Platform",
+      "position": {
+        "x": 40,
+        "y": 460
+      },
+      "properties": {
+        "vendor": "Microsoft Power Platform",
+        "service": "Copilot Studio",
+        "color": "#5B2C6F",
+        "description": "Low-code channel that calls the same enterprise orchestrator"
+      }
+    },
+    {
+      "id": "ai-chat",
+      "type": "diagram",
+      "label": "Copilot UI",
+      "category": "Software Engineering",
+      "position": {
+        "x": 300,
+        "y": 80
+      },
+      "properties": {
+        "shape": "c4-container",
+        "description": "Web chat, citations, and conversation history",
+        "environment": "Azure App Service"
+      }
+    },
+    {
+      "id": "ai-apim",
+      "type": "azure",
+      "label": "Azure API Management",
+      "category": "Azure",
+      "position": {
+        "x": 300,
+        "y": 260
+      },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "API Management",
+        "componentType": "api",
+        "description": "Auth, quota, and copilot API façade",
+        "interfaceSpec": "{\n  \"title\": \"Enterprise Copilot API\",\n  \"version\": \"1.0.0\",\n  \"baseUrl\": \"https://api.example.com/ai/v1\",\n  \"description\": \"Grounded chat, retrieval, and feedback for the enterprise copilot\",\n  \"specFormat\": \"simple\",\n  \"endpoints\": [\n    { \"method\": \"POST\", \"path\": \"/chat\", \"summary\": \"Turn-based grounded completion\" },\n    { \"method\": \"POST\", \"path\": \"/retrieve\", \"summary\": \"Hybrid search over the knowledge index\" },\n    { \"method\": \"POST\", \"path\": \"/feedback\", \"summary\": \"Thumbs / citation quality signal\" }\n  ]\n}"
+      }
+    },
+    {
+      "id": "ai-orchestrator",
+      "type": "middleware",
+      "label": "Prompt Orchestrator",
+      "category": "Middleware",
+      "position": {
+        "x": 560,
+        "y": 80
+      },
+      "properties": {
+        "description": "Routing, tool calls, retrieval, prompt assembly, and answer synthesis",
+        "environment": "AKS"
+      }
+    },
+    {
+      "id": "ai-safety",
+      "type": "azure",
+      "label": "Content Safety",
+      "category": "Azure",
+      "position": {
+        "x": 560,
+        "y": 260
+      },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "color": "#be185d",
+        "description": "Prompt/response filtering, jailbreak and PII screens"
+      }
+    },
+    {
+      "id": "ai-llm-gw",
+      "type": "middleware",
+      "label": "LLM Gateway",
+      "category": "Middleware",
+      "position": {
+        "x": 560,
+        "y": 440
+      },
+      "properties": {
+        "description": "Model router with failover, token budgets, and provider keys",
+        "environment": "Cloud"
+      },
+      "subDiagram": {
+        "name": "LLM Gateway Internals",
+        "description": "Multi-model routing behind a single completion contract",
+        "systems": [
+          {
+            "id": "ai-gw-router",
+            "type": "diagram",
+            "label": "Model Router",
+            "category": "Software Engineering",
+            "position": {
+              "x": 80,
+              "y": 140
+            },
+            "properties": {
+              "shape": "process",
+              "description": "Pick model by task, latency, and cost"
+            }
+          },
+          {
+            "id": "ai-gw-xai",
+            "type": "saas",
+            "label": "SpaceXAI / Grok",
+            "category": "SaaS",
+            "position": {
+              "x": 340,
+              "y": 40
+            },
+            "properties": {
+              "vendor": "xAI",
+              "description": "Primary reasoning and generation model"
+            }
+          },
+          {
+            "id": "ai-gw-aoai",
+            "type": "azure",
+            "label": "Azure OpenAI",
+            "category": "Azure",
+            "position": {
+              "x": 340,
+              "y": 200
+            },
+            "properties": {
+              "vendor": "Microsoft Azure",
+              "description": "Enterprise GPT deployment in the tenant"
+            }
+          },
+          {
+            "id": "ai-gw-embed",
+            "type": "cloud",
+            "label": "Embedding Model",
+            "category": "Cloud",
+            "position": {
+              "x": 340,
+              "y": 360
+            },
+            "properties": {
+              "description": "Dedicated embedding endpoint for index and query"
+            }
+          },
+          {
+            "id": "ai-gw-meter",
+            "type": "diagram",
+            "label": "Token Meter",
+            "category": "Software Engineering",
+            "position": {
+              "x": 80,
+              "y": 320
+            },
+            "properties": {
+              "shape": "component",
+              "description": "Per-app budgets, caching, and retry policy"
+            }
+          }
+        ],
+        "integrations": [
+          {
+            "id": "ai-gw-int-xai",
+            "source": "ai-gw-router",
+            "target": "ai-gw-xai",
+            "label": "Chat completions",
+            "direction": "outbound",
+            "protocol": "REST API",
+            "frequency": "real-time",
+            "dataFormat": "JSON",
+            "description": "Chat completions"
+          },
+          {
+            "id": "ai-gw-int-aoai",
+            "source": "ai-gw-router",
+            "target": "ai-gw-aoai",
+            "label": "Failover / GPT tasks",
+            "direction": "outbound",
+            "protocol": "REST API",
+            "frequency": "real-time",
+            "dataFormat": "JSON",
+            "description": "Failover / GPT tasks"
+          },
+          {
+            "id": "ai-gw-int-emb",
+            "source": "ai-gw-router",
+            "target": "ai-gw-embed",
+            "label": "Embed query/doc",
+            "direction": "outbound",
+            "protocol": "REST API",
+            "frequency": "real-time",
+            "dataFormat": "JSON",
+            "description": "Embed query/doc"
+          },
+          {
+            "id": "ai-gw-int-meter",
+            "source": "ai-gw-router",
+            "target": "ai-gw-meter",
+            "label": "Count tokens",
+            "direction": "outbound",
+            "protocol": "Custom",
+            "frequency": "real-time",
+            "dataFormat": "JSON",
+            "description": "Count tokens"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ai-embed",
+      "type": "cloud",
+      "label": "Embedding Service",
+      "category": "Cloud",
+      "position": {
+        "x": 840,
+        "y": 60
+      },
+      "properties": {
+        "description": "Chunk and embed documents and user queries"
+      }
+    },
+    {
+      "id": "ai-vector",
+      "type": "database",
+      "label": "Vector Index",
+      "category": "Database",
+      "position": {
+        "x": 840,
+        "y": 220
+      },
+      "properties": {
+        "description": "Hybrid (vector + keyword) retrieval store"
+      }
+    },
+    {
+      "id": "ai-indexer",
+      "type": "azure",
+      "label": "RAG Indexer",
+      "category": "Azure",
+      "position": {
+        "x": 840,
+        "y": 380
+      },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "Data Factory",
+        "description": "Crawl, chunk, ACL stamp, and refresh the knowledge index"
+      }
+    },
+    {
+      "id": "ai-blob",
+      "type": "azure",
+      "label": "Azure Blob Storage",
+      "category": "Azure",
+      "position": {
+        "x": 840,
+        "y": 540
+      },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "Blob Storage",
+        "description": "Canonical files, parsed text, and citation payloads"
+      }
+    },
+    {
+      "id": "ai-sharepoint",
+      "type": "saas",
+      "label": "SharePoint / Files",
+      "category": "SaaS",
+      "position": {
+        "x": 1120,
+        "y": 60
+      },
+      "properties": {
+        "vendor": "Microsoft",
+        "description": "Policies, manuals, and approved knowledge"
+      }
+    },
+    {
+      "id": "ai-dataverse",
+      "type": "powerplatform",
+      "label": "Dataverse",
+      "category": "Power Platform",
+      "position": {
+        "x": 1120,
+        "y": 220
+      },
+      "properties": {
+        "vendor": "Microsoft Power Platform",
+        "service": "Dataverse",
+        "color": "#0284C7",
+        "description": "CRM and case records used as grounded facts"
+      }
+    },
+    {
+      "id": "ai-entra",
+      "type": "azure",
+      "label": "Microsoft Entra ID",
+      "category": "Azure",
+      "position": {
+        "x": 1120,
+        "y": 380
+      },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "Entra ID",
+        "description": "User identity, app roles, and document ACLs on retrieve"
+      }
+    },
+    {
+      "id": "ai-obs",
+      "type": "azure",
+      "label": "Azure Monitor",
+      "category": "Azure",
+      "position": {
+        "x": 1120,
+        "y": 540
+      },
+      "properties": {
+        "vendor": "Microsoft Azure",
+        "service": "Monitor",
+        "description": "Traces, token cost, groundedness, and eval scores"
+      }
+    },
+    {
+      "id": "ai-note",
+      "type": "note",
+      "label": "Grounding rule",
+      "category": "Drawing",
+      "position": {
+        "x": 300,
+        "y": 520
+      },
+      "properties": {
+        "content": "Answers must cite retrieved chunks. Strip secrets before the model. Enforce document ACLs at retrieve time, not only in the UI."
+      }
+    }
+  ],
+  "integrations": [
+    {
+      "id": "ai-int-emp-ui",
+      "source": "ai-users",
+      "target": "ai-chat",
+      "label": "Chat session",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Chat session"
+    },
+    {
+      "id": "ai-int-cust-api",
+      "source": "ai-customers",
+      "target": "ai-apim",
+      "label": "Support copilot API",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Support copilot API"
+    },
+    {
+      "id": "ai-int-studio",
+      "source": "ai-copilot-studio",
+      "target": "ai-apim",
+      "label": "Low-code channel",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Low-code channel"
+    },
+    {
+      "id": "ai-int-ui-api",
+      "source": "ai-chat",
+      "target": "ai-apim",
+      "label": "Chat / retrieve / feedback",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Chat / retrieve / feedback"
+    },
+    {
+      "id": "ai-int-api-orch",
+      "source": "ai-apim",
+      "target": "ai-orchestrator",
+      "label": "Grounded completion",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Grounded completion"
+    },
+    {
+      "id": "ai-int-orch-safe",
+      "source": "ai-orchestrator",
+      "target": "ai-safety",
+      "label": "Screen prompt & answer",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Screen prompt & answer"
+    },
+    {
+      "id": "ai-int-orch-llm",
+      "source": "ai-orchestrator",
+      "target": "ai-llm-gw",
+      "label": "Complete with tools",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Complete with tools"
+    },
+    {
+      "id": "ai-int-orch-vec",
+      "source": "ai-orchestrator",
+      "target": "ai-vector",
+      "label": "Hybrid retrieve",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Hybrid retrieve"
+    },
+    {
+      "id": "ai-int-query-emb",
+      "source": "ai-orchestrator",
+      "target": "ai-embed",
+      "label": "Embed query",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Embed query"
+    },
+    {
+      "id": "ai-int-idx-src",
+      "source": "ai-sharepoint",
+      "target": "ai-indexer",
+      "label": "Crawl documents",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "scheduled",
+      "dataFormat": "JSON",
+      "description": "Crawl documents"
+    },
+    {
+      "id": "ai-int-idx-crm",
+      "source": "ai-dataverse",
+      "target": "ai-indexer",
+      "label": "Sync cases",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "near-real-time",
+      "dataFormat": "JSON",
+      "description": "Sync cases"
+    },
+    {
+      "id": "ai-int-idx-blob",
+      "source": "ai-indexer",
+      "target": "ai-blob",
+      "label": "Store parsed text",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "batch",
+      "dataFormat": "JSON",
+      "description": "Store parsed text"
+    },
+    {
+      "id": "ai-int-idx-emb",
+      "source": "ai-indexer",
+      "target": "ai-embed",
+      "label": "Embed chunks",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "batch",
+      "dataFormat": "JSON",
+      "description": "Embed chunks"
+    },
+    {
+      "id": "ai-int-idx-vec",
+      "source": "ai-indexer",
+      "target": "ai-vector",
+      "label": "Upsert vectors + ACLs",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "batch",
+      "dataFormat": "JSON",
+      "description": "Upsert vectors + ACLs"
+    },
+    {
+      "id": "ai-int-id-ui",
+      "source": "ai-chat",
+      "target": "ai-entra",
+      "label": "Sign-in / token",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "Sign-in / token"
+    },
+    {
+      "id": "ai-int-id-orch",
+      "source": "ai-orchestrator",
+      "target": "ai-entra",
+      "label": "On-behalf-of retrieve",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "On-behalf-of retrieve"
+    },
+    {
+      "id": "ai-int-obs",
+      "source": "ai-orchestrator",
+      "target": "ai-obs",
+      "label": "Traces and evals",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "near-real-time",
+      "dataFormat": "JSON",
+      "description": "Traces and evals"
+    },
+    {
+      "id": "ai-int-obs-gw",
+      "source": "ai-llm-gw",
+      "target": "ai-obs",
+      "label": "Token & latency",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "near-real-time",
+      "dataFormat": "JSON",
+      "description": "Token & latency"
+    }
+  ],
+  "drawings": [
+    {
+      "id": "ai-z-ch",
+      "type": "rectangle",
+      "points": [
+        {
+          "x": 20,
+          "y": 40
+        },
+        {
+          "x": 260,
+          "y": 600
+        }
+      ],
+      "color": "#ec4899",
+      "strokeWidth": 2,
+      "fill": "#ec489912"
+    },
+    {
+      "id": "ai-l-ch",
+      "type": "text",
+      "points": [
+        {
+          "x": 32,
+          "y": 52
+        }
+      ],
+      "color": "#9d174d",
+      "strokeWidth": 1,
+      "text": "Channels",
+      "fontSize": 13
+    },
+    {
+      "id": "ai-z-exp",
+      "type": "rectangle",
+      "points": [
+        {
+          "x": 280,
+          "y": 40
+        },
+        {
+          "x": 520,
+          "y": 400
+        }
+      ],
+      "color": "#6366f1",
+      "strokeWidth": 2,
+      "fill": "#6366f112"
+    },
+    {
+      "id": "ai-l-exp",
+      "type": "text",
+      "points": [
+        {
+          "x": 292,
+          "y": 52
+        }
+      ],
+      "color": "#3730a3",
+      "strokeWidth": 1,
+      "text": "Experience",
+      "fontSize": 13
+    },
+    {
+      "id": "ai-z-orch",
+      "type": "rectangle",
+      "points": [
+        {
+          "x": 540,
+          "y": 40
+        },
+        {
+          "x": 780,
+          "y": 580
+        }
+      ],
+      "color": "#8b5cf6",
+      "strokeWidth": 2,
+      "fill": "#8b5cf612"
+    },
+    {
+      "id": "ai-l-orch",
+      "type": "text",
+      "points": [
+        {
+          "x": 552,
+          "y": 52
+        }
+      ],
+      "color": "#5b21b6",
+      "strokeWidth": 1,
+      "text": "Orchestration & models",
+      "fontSize": 13
+    },
+    {
+      "id": "ai-z-know",
+      "type": "rectangle",
+      "points": [
+        {
+          "x": 820,
+          "y": 40
+        },
+        {
+          "x": 1060,
+          "y": 660
+        }
+      ],
+      "color": "#10b981",
+      "strokeWidth": 2,
+      "fill": "#10b98112"
+    },
+    {
+      "id": "ai-l-know",
+      "type": "text",
+      "points": [
+        {
+          "x": 832,
+          "y": 52
+        }
+      ],
+      "color": "#047857",
+      "strokeWidth": 1,
+      "text": "Knowledge & retrieval",
+      "fontSize": 13
+    },
+    {
+      "id": "ai-z-src",
+      "type": "rectangle",
+      "points": [
+        {
+          "x": 1100,
+          "y": 40
+        },
+        {
+          "x": 1340,
+          "y": 660
+        }
+      ],
+      "color": "#0ea5e9",
+      "strokeWidth": 2,
+      "fill": "#0ea5e912"
+    },
+    {
+      "id": "ai-l-src",
+      "type": "text",
+      "points": [
+        {
+          "x": 1112,
+          "y": 52
+        }
+      ],
+      "color": "#0369a1",
+      "strokeWidth": 1,
+      "text": "Sources · identity · ops",
+      "fontSize": 13
+    }
+  ]
+}

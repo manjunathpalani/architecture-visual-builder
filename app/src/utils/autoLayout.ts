@@ -22,6 +22,7 @@ const TIER_COLUMNS: Record<string, number> = {
   middleware: 1,
   aws: 2,
   azure: 2,
+  powerplatform: 0,
   cloud: 2,
   diagram: 2,
   database: 3,

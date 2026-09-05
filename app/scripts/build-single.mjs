@@ -168,8 +168,9 @@ Rebuild
 
 Notes
 -----
-- GitHub / Azure DevOps Vite dev proxy is not included.
+- GitHub / Azure DevOps / Jira / Microsoft Graph / Google API Vite proxies are not included.
   Browser CORS rules apply when calling those APIs from a static file.
+  Cloud OAuth (OneDrive, SharePoint, Google) needs the Vite dev server redirect /oauth/callback.
 - Output is minified.
 `
 

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { ImagePlus, KeyRound, Loader2, Send, Sparkles, X } from 'lucide-react'
+import { Check, ImagePlus, KeyRound, Loader2, Plus, Send, Sparkles, X } from 'lucide-react'
 import type { ArchitectureDocument } from '../types'
 import {
   AI_PROVIDERS,
   getProvider,
   loadAiSettings,
   saveAiSettings,
+  type AiKeyTest,
   type AiProviderId,
 } from '../utils/aiProviders'
 import {
@@ -13,20 +14,21 @@ import {
   buildAiChatContext,
   fetchAiStatus,
   generateArchitectureFromPrompt,
+  verifyAiKey,
   type AiPlacement,
   type AiStatus,
 } from '../utils/aiDiagram'
 import { filesToAiImages, type AiImage } from '../utils/aiImage'
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  text: string
-  images?: AiImage[]
-  error?: boolean
-}
+import {
+  chatHasHistory,
+  clearAiChatSession,
+  loadAiChatSession,
+  saveAiChatSession,
+  type AiChatMessage,
+} from '../utils/aiChat'
 
 interface AiDiagramModalProps {
+  open: boolean
   currentDocument: ArchitectureDocument
   onGenerate: (document: ArchitectureDocument, placement: AiPlacement) => void
   onManageKeys: () => void
@@ -37,19 +39,18 @@ function newId() {
   return `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-const WELCOME =
-  'Hi — I can draw an architecture from a description or a screenshot, then keep refining it in this chat. Tell me what to design, or pick a starter below.'
-
 export function AiDiagramModal({
+  open,
   currentDocument,
   onGenerate,
   onManageKeys,
   onClose,
 }: AiDiagramModalProps) {
   const initial = loadAiSettings()
-  const [prompt, setPrompt] = useState('')
-  const [placement, setPlacement] = useState<AiPlacement>('new-tab')
-  const [useContext, setUseContext] = useState(false)
+  const [storedChat] = useState<ReturnType<typeof loadAiChatSession>>(() => loadAiChatSession())
+  const [prompt, setPrompt] = useState(storedChat.draft ?? '')
+  const [placement, setPlacement] = useState<AiPlacement>(storedChat.placement)
+  const [useContext, setUseContext] = useState(storedChat.useContext)
   const [provider, setProvider] = useState<AiProviderId>(initial.selectedProvider)
   const [userKey, setUserKey] = useState(initial.keys[initial.selectedProvider] ?? '')
   const [azureEndpoint, setAzureEndpoint] = useState(initial.azureEndpoint ?? '')
@@ -58,9 +59,11 @@ export function AiDiagramModal({
   const [images, setImages] = useState<AiImage[]>([])
   const [imageBusy, setImageBusy] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'assistant', text: WELCOME },
-  ])
+  const [keyTest, setKeyTest] = useState<AiKeyTest | undefined>(
+    initial.keyTests?.[initial.selectedProvider],
+  )
+  const [testingKey, setTestingKey] = useState(false)
+  const [messages, setMessages] = useState<AiChatMessage[]>(storedChat.messages)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -68,6 +71,15 @@ export function AiDiagramModal({
   useEffect(() => {
     void fetchAiStatus().then(setStatus)
   }, [])
+
+  useEffect(() => {
+    saveAiChatSession({
+      messages,
+      placement,
+      useContext,
+      draft: prompt,
+    })
+  }, [messages, placement, useContext, prompt])
 
   useEffect(() => {
     const node = listRef.current
@@ -85,6 +97,7 @@ export function AiDiagramModal({
   const canSend =
     (prompt.trim().length > 0 || images.length > 0) &&
     !loading &&
+    !testingKey &&
     !imageBusy &&
     Boolean(status?.available) &&
     hasKey &&
@@ -102,17 +115,62 @@ export function AiDiagramModal({
     saveAiSettings(nextSettings)
     setProvider(next)
     setUserKey(nextSettings.keys[next] ?? '')
+    setKeyTest(nextSettings.keyTests?.[next])
   }
 
-  const persistKeys = () => {
+  const persistKeys = async (): Promise<{ ok: true } | { ok: false; message: string }> => {
     const settings = loadAiSettings()
-    saveAiSettings({
-      ...settings,
-      selectedProvider: provider,
-      keys: { ...settings.keys, [provider]: userKey },
+    const trimmed = userKey.trim()
+    if (!trimmed) {
+      saveAiSettings({
+        ...settings,
+        selectedProvider: provider,
+        azureEndpoint,
+        azureDeployment,
+      })
+      return { ok: true }
+    }
+
+    const alreadyGood =
+      settings.keys[provider] === trimmed && settings.keyTests?.[provider]?.ok === true
+    if (alreadyGood) {
+      saveAiSettings({
+        ...settings,
+        selectedProvider: provider,
+        azureEndpoint,
+        azureDeployment,
+      })
+      return { ok: true }
+    }
+
+    setTestingKey(true)
+    const result = await verifyAiKey({
+      provider,
+      apiKey: trimmed,
       azureEndpoint,
       azureDeployment,
     })
+    setTestingKey(false)
+
+    const test: AiKeyTest = {
+      ok: result.ok,
+      message: result.message,
+      testedAt: new Date().toISOString(),
+      source: result.source,
+    }
+    setKeyTest(test)
+
+    if (!result.ok) return { ok: false, message: result.message }
+
+    saveAiSettings({
+      ...settings,
+      selectedProvider: provider,
+      keys: { ...settings.keys, [provider]: trimmed },
+      azureEndpoint,
+      azureDeployment,
+      keyTests: { ...settings.keyTests, [provider]: test },
+    })
+    return { ok: true }
   }
 
   const addFiles = async (files: File[]) => {
@@ -137,6 +195,7 @@ export function AiDiagramModal({
   }
 
   useEffect(() => {
+    if (!open) return
     const onPaste = (event: ClipboardEvent) => {
       const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
         file.type.startsWith('image/'),
@@ -147,13 +206,19 @@ export function AiDiagramModal({
     }
     window.addEventListener('paste', onPaste)
     return () => window.removeEventListener('paste', onPaste)
-  }, [])
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const id = window.requestAnimationFrame(() => inputRef.current?.focus())
+    return () => window.cancelAnimationFrame(id)
+  }, [open])
 
   const sendPrompt = async (raw: string, attached: AiImage[]) => {
     const text = raw.trim()
     if ((!text && attached.length === 0) || loading) return
 
-    const userMessage: ChatMessage = {
+    const userMessage: AiChatMessage = {
       id: newId(),
       role: 'user',
       text: text || 'Recreate the attached image as an architecture diagram.',
@@ -165,7 +230,20 @@ export function AiDiagramModal({
     setPrompt('')
     setImages([])
     setLoading(true)
-    persistKeys()
+    const keyResult = await persistKeys()
+    if (!keyResult.ok) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId(),
+          role: 'assistant',
+          error: true,
+          text: keyResult.message,
+        },
+      ])
+      setLoading(false)
+      return
+    }
 
     try {
       const context = buildAiChatContext(
@@ -204,6 +282,21 @@ export function AiDiagramModal({
     void sendPrompt(prompt, images)
   }
 
+  const startNewChat = () => {
+    if (loading) return
+    const next = clearAiChatSession()
+    setMessages(next.messages)
+    setPlacement(next.placement)
+    setUseContext(next.useContext)
+    setPrompt('')
+    setImages([])
+    inputRef.current?.focus()
+  }
+
+  if (!open) return null
+
+  const hasHistory = chatHasHistory(messages)
+
   return (
     <div className="swagger-overlay ai-chat-overlay" onClick={onClose}>
       <div className="ai-chat-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Draw with AI chat">
@@ -215,9 +308,23 @@ export function AiDiagramModal({
             </h2>
             <p>Chat to design and refine the diagram · {info.shortLabel}</p>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="ai-chat-header-actions">
+            {hasHistory && (
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={startNewChat}
+                disabled={loading}
+                title="Start a new conversation"
+              >
+                <Plus size={14} />
+                New chat
+              </button>
+            )}
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="ai-chat-toolbar">
@@ -387,18 +494,22 @@ export function AiDiagramModal({
             )}
             <button type="button" className="btn-secondary" onClick={onManageKeys} disabled={loading}>
               <KeyRound size={13} />
-              Keys
+              Settings
             </button>
           </div>
           {status?.available && !serverReady && (
+            <>
             <div className="ai-chat-key-row">
               <input
                 type="password"
                 autoComplete="off"
                 placeholder={info.keyPlaceholder}
                 value={userKey}
-                onChange={(e) => setUserKey(e.target.value)}
-                disabled={loading}
+                onChange={(e) => {
+                  setUserKey(e.target.value)
+                  setKeyTest(undefined)
+                }}
+                disabled={loading || testingKey}
               />
               {provider === 'azure-openai' && (
                 <>
@@ -406,17 +517,33 @@ export function AiDiagramModal({
                     placeholder="Azure endpoint"
                     value={azureEndpoint}
                     onChange={(e) => setAzureEndpoint(e.target.value)}
-                    disabled={loading}
+                    disabled={loading || testingKey}
                   />
                   <input
                     placeholder="Deployment"
                     value={azureDeployment}
                     onChange={(e) => setAzureDeployment(e.target.value)}
-                    disabled={loading}
+                    disabled={loading || testingKey}
                   />
                 </>
               )}
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={loading || testingKey || !userKey.trim()}
+                onClick={() => void persistKeys()}
+              >
+                {testingKey ? <Loader2 size={13} className="spin" /> : <Check size={13} />}
+                {testingKey ? 'Testing…' : 'Test & save'}
+              </button>
             </div>
+            {keyTest && (
+              <p className={`ai-key-status ${keyTest.ok ? 'ok' : 'err'}`}>
+                {keyTest.ok ? <Check size={13} /> : <X size={13} />}
+                {keyTest.message}
+              </p>
+            )}
+            </>
           )}
         </div>
       </div>

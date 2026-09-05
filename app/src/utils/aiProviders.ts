@@ -32,11 +32,19 @@ export interface AiStatus {
   providers: AiProviderStatus[]
 }
 
+export interface AiKeyTest {
+  ok: boolean
+  message: string
+  testedAt: string
+  source?: 'browser' | 'server'
+}
+
 export interface StoredAiSettings {
   selectedProvider: AiProviderId
   keys: Partial<Record<AiProviderId, string>>
   azureEndpoint?: string
   azureDeployment?: string
+  keyTests?: Partial<Record<AiProviderId, AiKeyTest>>
 }
 
 const STORAGE_KEY = 'architecture-visual-builder-ai'
@@ -120,6 +128,7 @@ export function loadAiSettings(): StoredAiSettings {
         keys: parsed.keys ?? {},
         azureEndpoint: parsed.azureEndpoint,
         azureDeployment: parsed.azureDeployment,
+        keyTests: parsed.keyTests ?? {},
       }
     }
     const legacy = localStorage.getItem(LEGACY_XAI_KEY)?.trim()
@@ -153,6 +162,7 @@ export function updateAiSettings(patch: Partial<StoredAiSettings>) {
     ...current,
     ...patch,
     keys: { ...current.keys, ...patch.keys },
+    keyTests: { ...current.keyTests, ...patch.keyTests },
   })
 }
 

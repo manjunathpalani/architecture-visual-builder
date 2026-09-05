@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
-import { completeDiagram, type AiProviderId } from './aiEngines'
+import { completeAnalysis, completeDiagram, verifyProviderKey, type AiProviderId } from './aiEngines'
 
 const PROVIDERS: Array<{
   id: AiProviderId
@@ -53,6 +53,14 @@ function createHandler(env: Record<string, string>) {
       void handleDiagram(req, res, env)
       return
     }
+    if (req.method === 'POST' && (url === '/analyze' || url === '/analyze/')) {
+      void handleAnalyze(req, res, env)
+      return
+    }
+    if (req.method === 'POST' && (url === '/verify' || url === '/verify/')) {
+      void handleVerify(req, res, env)
+      return
+    }
     next()
   }
 }
@@ -74,6 +82,58 @@ function handleStatus(res: ServerResponse, env: Record<string, string>) {
       ),
       recommended: provider.recommended,
     })),
+  })
+}
+
+async function handleVerify(req: IncomingMessage, res: ServerResponse, env: Record<string, string>) {
+  let body: {
+    provider?: string
+    apiKey?: string
+    useServer?: boolean
+    azureEndpoint?: string
+    azureDeployment?: string
+  }
+  try {
+    body = JSON.parse(await readBody(req)) as typeof body
+  } catch {
+    json(res, 400, { error: 'Invalid JSON body' })
+    return
+  }
+
+  const providerId = (body.provider ?? 'spacexai') as AiProviderId
+  const provider = PROVIDERS.find((p) => p.id === providerId)
+  if (!provider || !PROVIDER_IDS.has(providerId)) {
+    json(res, 400, { ok: false, error: 'Unknown AI engine' })
+    return
+  }
+
+  const provided = body.apiKey?.trim() ?? ''
+  const apiKey = provided || (body.useServer
+    ? envValue(env, provider.envKey) || (provider.id === 'gemini' ? envValue(env, 'GOOGLE_API_KEY') : '')
+    : '')
+  if (!apiKey) {
+    json(res, 400, {
+      ok: false,
+      error: `No ${provider.label} key to test. Paste a key or configure ${provider.envKey}.`,
+    })
+    return
+  }
+
+  const azureEndpoint = body.azureEndpoint?.trim() || envValue(env, 'AZURE_OPENAI_ENDPOINT')
+  const azureDeployment = body.azureDeployment?.trim() || envValue(env, 'AZURE_OPENAI_DEPLOYMENT')
+
+  const result = await verifyProviderKey({
+    provider: providerId,
+    apiKey,
+    azureEndpoint,
+    azureDeployment,
+  })
+  json(res, 200, {
+    ok: result.ok,
+    message: result.message,
+    error: result.ok ? undefined : result.message,
+    provider: providerId,
+    source: provided ? 'browser' : 'server',
   })
 }
 
@@ -145,6 +205,77 @@ async function handleDiagram(req: IncomingMessage, res: ServerResponse, env: Rec
     const status = typeof err === 'object' && err && 'status' in err ? Number((err as { status?: number }).status) : 502
     json(res, Number.isFinite(status) && status >= 400 ? status : 502, {
       error: err instanceof Error ? err.message : `${provider.label} request failed`,
+    })
+  }
+}
+
+async function handleAnalyze(req: IncomingMessage, res: ServerResponse, env: Record<string, string>) {
+  let body: {
+    prompt?: string
+    context?: string
+    provider?: string
+    apiKey?: string
+    model?: string
+    azureEndpoint?: string
+    azureDeployment?: string
+  }
+  try {
+    body = JSON.parse(await readBody(req)) as typeof body
+  } catch {
+    json(res, 400, { error: 'Invalid JSON body' })
+    return
+  }
+
+  const providerId = (body.provider ?? 'spacexai') as AiProviderId
+  const provider = PROVIDERS.find((p) => p.id === providerId)
+  if (!provider || !PROVIDER_IDS.has(providerId)) {
+    json(res, 400, { error: 'Unknown AI engine' })
+    return
+  }
+
+  const context = body.context?.trim() ?? ''
+  if (!context) {
+    json(res, 400, { error: 'Add systems to the canvas before running capability analysis.' })
+    return
+  }
+  if (context.length > 20000) {
+    json(res, 400, { error: 'Architecture context is too large to analyze in one pass.' })
+    return
+  }
+
+  const prompt = (body.prompt?.trim() || 'Analyze this architecture as enterprise capabilities. Show pros and cons.').slice(0, 4000)
+
+  const apiKey =
+    envValue(env, provider.envKey) ||
+    (provider.id === 'gemini' ? envValue(env, 'GOOGLE_API_KEY') : '') ||
+    body.apiKey?.trim() ||
+    ''
+  if (!apiKey) {
+    json(res, 401, {
+      error: `No ${provider.label} key configured. Set ${provider.envKey} in app/.env or paste a key in AI Engines.`,
+    })
+    return
+  }
+
+  const model = body.model?.trim() || envValue(env, provider.envModel ?? '') || provider.defaultModel
+  const azureEndpoint = body.azureEndpoint?.trim() || envValue(env, 'AZURE_OPENAI_ENDPOINT')
+  const azureDeployment = body.azureDeployment?.trim() || envValue(env, 'AZURE_OPENAI_DEPLOYMENT')
+
+  try {
+    const text = await completeAnalysis({
+      provider: providerId,
+      prompt,
+      context,
+      apiKey,
+      model,
+      azureEndpoint,
+      azureDeployment,
+    })
+    json(res, 200, { text, model, provider: providerId })
+  } catch (err) {
+    const status = typeof err === 'object' && err && 'status' in err ? Number((err as { status?: number }).status) : 502
+    json(res, Number.isFinite(status) && status >= 400 ? status : 502, {
+      error: err instanceof Error ? err.message : `${provider.label} analysis failed`,
     })
   }
 }

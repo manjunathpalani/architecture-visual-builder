@@ -171,6 +171,95 @@ export async function writeAzureFile(
   }
 }
 
+export interface AzureWorkItem {
+  id: number
+  title: string
+  state: string
+  type: string
+  assignedTo?: string
+  project: string
+  url: string
+}
+
+export async function searchAzureWorkItems(project: string, query?: string): Promise<AzureWorkItem[]> {
+  const trimmed = query?.trim() ?? ''
+  const escapedProject = escapeWiql(project)
+  let wiql: string
+
+  if (trimmed && /^\d+$/.test(trimmed)) {
+    wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${escapedProject}' AND [System.Id] = ${trimmed}`
+  } else if (trimmed) {
+    wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${escapedProject}' AND [System.Title] CONTAINS '${escapeWiql(trimmed)}' ORDER BY [System.ChangedDate] DESC`
+  } else {
+    wiql = `SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '${escapedProject}' ORDER BY [System.ChangedDate] DESC`
+  }
+
+  const response = await fetch(
+    azureUrl(`/${encodeURIComponent(project)}/_apis/wit/wiql?$top=40&api-version=7.0`),
+    {
+      method: 'POST',
+      headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: wiql }),
+    },
+  )
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    const message =
+      (body as { message?: string }).message ??
+      'Failed to search Azure DevOps work items. Ensure the PAT has Work Items (Read).'
+    throw new GitApiError(message, response.status)
+  }
+
+  const result = (await response.json()) as { workItems?: Array<{ id: number }> }
+  const ids = (result.workItems ?? []).map((item) => item.id).slice(0, 40)
+  if (ids.length === 0) return []
+  return getAzureWorkItems(ids, project)
+}
+
+async function getAzureWorkItems(ids: number[], fallbackProject: string): Promise<AzureWorkItem[]> {
+  const params = new URLSearchParams({
+    ids: ids.join(','),
+    fields:
+      'System.Id,System.Title,System.State,System.WorkItemType,System.TeamProject,System.AssignedTo',
+    'api-version': '7.0',
+  })
+  const result = await gitFetch<{ value: AzureWorkItemRaw[] }>(
+    azureUrl(`/_apis/wit/workitems?${params}`),
+    getHeaders(),
+  )
+  return result.value.map((item) => mapWorkItem(item, fallbackProject))
+}
+
+interface AzureWorkItemRaw {
+  id: number
+  fields?: {
+    'System.Title'?: string
+    'System.State'?: string
+    'System.WorkItemType'?: string
+    'System.TeamProject'?: string
+    'System.AssignedTo'?: string | { displayName?: string }
+  }
+}
+
+function mapWorkItem(item: AzureWorkItemRaw, fallbackProject: string): AzureWorkItem {
+  const project = item.fields?.['System.TeamProject'] ?? fallbackProject
+  const assigned = item.fields?.['System.AssignedTo']
+  return {
+    id: item.id,
+    title: item.fields?.['System.Title'] ?? '',
+    state: item.fields?.['System.State'] ?? '',
+    type: item.fields?.['System.WorkItemType'] ?? '',
+    assignedTo: typeof assigned === 'string' ? assigned : assigned?.displayName,
+    project,
+    url: `https://dev.azure.com/${getOrg()}/${encodeURIComponent(project)}/_workitems/edit/${item.id}`,
+  }
+}
+
+function escapeWiql(value: string): string {
+  return value.replace(/'/g, "''")
+}
+
 async function getBranchObjectId(
   project: string,
   repoId: string,

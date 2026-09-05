@@ -23,7 +23,7 @@ export type AiPlacement = 'new-tab' | 'replace' | 'merge'
 export type { AiStatus } from './aiProviders'
 
 const SYSTEM_TYPES = new Set<SystemType>([
-  'saas', 'aws', 'azure', 'cloud', 'onpremise', 'middleware',
+  'saas', 'aws', 'azure', 'powerplatform', 'cloud', 'onpremise', 'middleware',
   'database', 'external', 'diagram', 'note', 'group', 'shape',
 ])
 const DIRECTIONS = new Set<IntegrationDirection>(['inbound', 'outbound', 'bidirectional'])
@@ -42,6 +42,8 @@ export const AI_PROMPT_EXAMPLES = [
   'Add an Azure API Management front door and Event Hubs to the current diagram',
   'AWS landing zone: Route 53, CloudFront, WAF, ALB, EKS in private subnets, RDS, S3, IAM, CloudWatch',
   'Azure hub-and-spoke: Front Door, Firewall, App Gateway, AKS, SQL, Key Vault, Entra ID',
+  'Power Platform: Power Apps, Power Automate, Dataverse, Power BI, and an on-premises data gateway to SQL',
+  'Enterprise RAG copilot: chat UI, API gateway, prompt orchestrator, vector index, LLM gateway, and SharePoint',
   'Kubernetes platform with ingress, APIs, workers, Redis, Postgres, registry, and GitOps',
 ]
 
@@ -59,6 +61,44 @@ export async function fetchAiStatus(): Promise<AiStatus> {
     }
   } catch {
     return { available: false, defaultProvider: 'spacexai', providers: [] }
+  }
+}
+
+export async function verifyAiKey(options: {
+  provider: AiProviderId
+  apiKey?: string
+  useServer?: boolean
+  azureEndpoint?: string
+  azureDeployment?: string
+}): Promise<{ ok: boolean; message: string; source?: 'browser' | 'server' }> {
+  try {
+    const response = await fetch('/api/ai/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        provider: options.provider,
+        apiKey: options.apiKey,
+        useServer: options.useServer,
+        azureEndpoint: options.azureEndpoint,
+        azureDeployment: options.azureDeployment,
+      }),
+    })
+    const payload = (await response.json().catch(() => ({}))) as {
+      ok?: boolean
+      message?: string
+      error?: string
+      source?: 'browser' | 'server'
+    }
+    if (!response.ok && payload.error) {
+      return { ok: false, message: payload.error }
+    }
+    return {
+      ok: Boolean(payload.ok),
+      message: payload.message || payload.error || (payload.ok ? 'Verified' : 'Key test failed'),
+      source: payload.source,
+    }
+  } catch {
+    return { ok: false, message: 'Could not reach the AI proxy. Run the app with npm run dev.' }
   }
 }
 
@@ -338,6 +378,7 @@ function defaultCategory(type: SystemType): string {
     saas: 'SaaS',
     aws: 'AWS',
     azure: 'Azure',
+    powerplatform: 'Power Platform',
     cloud: 'Cloud',
     onpremise: 'On-Premise',
     middleware: 'Middleware',

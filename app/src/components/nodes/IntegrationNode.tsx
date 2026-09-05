@@ -1,9 +1,10 @@
-import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { SYSTEM_TYPE_CONFIG } from '../../types'
 import type { IntegrationNodeData } from '../../utils/jsonIO'
 import { getNodeColor } from '../../utils/nodeStyle'
 import { ServiceIcon, getServiceIconFromLabel } from '../icons/ServiceIcons'
 import { CodeLinkBadge } from '../CodeLinkBadge'
+import { WorkItemBadge } from '../WorkItemBadge'
 import { SubDiagramBadge } from '../SubDiagramBadge'
 import { InterfaceSpecViewer } from '../InterfaceSpecViewer'
 import { isApiNode, nodeHasInterfaceSpec } from '../../utils/apiComponent'
@@ -12,6 +13,7 @@ import { useState } from 'react'
 import { InterfaceSpecModal } from '../InterfaceSpecModal'
 import { ChangeStatusBadge } from '../ChangeStatusBadge'
 import { parseChangeStatus } from '../../utils/architectureState'
+import { NodeConnectors } from './NodeConnectors'
 
 export function IntegrationNode({ data, selected }: NodeProps) {
   const nodeData = data as IntegrationNodeData
@@ -37,10 +39,7 @@ export function IntegrationNode({ data, selected }: NodeProps) {
         className={`integration-node resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
         style={{ '--node-color': color } as React.CSSProperties}
       >
-        <Handle type="target" position={Position.Top} id="t-top" className="node-handle" />
-        <Handle type="source" position={Position.Top} id="s-top" className="node-handle" />
-        <Handle type="target" position={Position.Left} id="t-left" className="node-handle" />
-        <Handle type="source" position={Position.Left} id="s-left" className="node-handle" />
+        <NodeConnectors />
         <div className="node-header">
           {hasServiceIcon ? (
             <div className="node-service-icon">
@@ -84,13 +83,10 @@ export function IntegrationNode({ data, selected }: NodeProps) {
                 compact
               />
             )}
+            <WorkItemBadge fields={nodeData.properties} compact />
             <CodeLinkBadge properties={nodeData.properties} compact />
           </div>
         </div>
-        <Handle type="target" position={Position.Right} id="t-right" className="node-handle" />
-        <Handle type="source" position={Position.Right} id="s-right" className="node-handle" />
-        <Handle type="target" position={Position.Bottom} id="t-bottom" className="node-handle" />
-        <Handle type="source" position={Position.Bottom} id="s-bottom" className="node-handle" />
       </div>
       {showSpecModal && spec && (
         <InterfaceSpecModal spec={spec} onClose={() => setShowSpecModal(false)} />

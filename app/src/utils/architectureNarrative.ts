@@ -75,7 +75,7 @@ export interface ArchitectureBrief {
 }
 
 const CONTENT_TYPES = new Set<SystemType>([
-  'saas', 'aws', 'azure', 'cloud', 'onpremise', 'middleware', 'database', 'external',
+  'saas', 'aws', 'azure', 'powerplatform', 'cloud', 'onpremise', 'middleware', 'database', 'external',
 ])
 
 export function buildArchitectureBrief(doc: ArchitectureDocument): ArchitectureBrief {

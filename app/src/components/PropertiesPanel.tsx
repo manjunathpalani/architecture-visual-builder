@@ -1,15 +1,23 @@
-import { Layers, ZoomIn } from 'lucide-react'
+import { Layers, Scale, ZoomIn } from 'lucide-react'
 import type { Edge, Node } from '@xyflow/react'
 import type {
   ArchitectureDocument,
   DiagramShape,
   DrawingShapeKind,
+  EdgeRouting,
   IntegrationDirection,
   IntegrationFrequency,
   IntegrationProtocol,
   SystemType,
 } from '../types'
-import { COLOR_PRESETS, DRAWING_SHAPE_KINDS, DRAWING_SHAPE_LABELS, SYSTEM_TYPE_CONFIG } from '../types'
+import {
+  COLOR_PRESETS,
+  DRAWING_SHAPE_KINDS,
+  DRAWING_SHAPE_LABELS,
+  EDGE_ROUTING_OPTIONS,
+  SYSTEM_TYPE_CONFIG,
+  parseEdgeRouting,
+} from '../types'
 import type { DiagramPath } from '../types/diagram'
 import { getNodeColor } from '../utils/nodeStyle'
 import type { IntegrationEdgeData, IntegrationNodeData } from '../utils/jsonIO'
@@ -20,6 +28,7 @@ import {
   hasSubDiagram,
 } from '../utils/diagramNavigation'
 import { CodeLinkSection } from './CodeLinkSection'
+import { WorkItemLinkSection } from './WorkItemLinkSection'
 import { InterfaceSpecSection } from './InterfaceSpecSection'
 import { isApiIntegration, isApiNode } from '../utils/apiComponent'
 import {
@@ -40,6 +49,7 @@ interface PropertiesPanelProps {
   onDeleteNode: (id: string) => void
   onDeleteEdge: (id: string) => void
   onDrillInto: (systemId: string, label: string) => void
+  onAnalyzeCapability?: (label: string) => void
 }
 
 const SYSTEM_TYPES = Object.keys(SYSTEM_TYPE_CONFIG) as SystemType[]
@@ -66,6 +76,7 @@ export function PropertiesPanel({
   onDeleteNode,
   onDeleteEdge,
   onDrillInto,
+  onAnalyzeCapability,
 }: PropertiesPanelProps) {
   if (!selectedNode && !selectedEdge) {
     return (
@@ -317,13 +328,43 @@ export function PropertiesPanel({
             />
           )}
 
+          {!isGroup && !isShape && !isNote && onAnalyzeCapability && (
+            <div className="sub-diagram-section">
+              <div className="sub-diagram-header">
+                <Scale size={16} />
+                <span>Capability analysis</span>
+              </div>
+              <p className="sub-diagram-desc">
+                Ask AI for pros and cons of this component in the current landscape.
+              </p>
+              <button
+                type="button"
+                className="btn-secondary sub-diagram-open-btn"
+                onClick={() => onAnalyzeCapability(data.label)}
+              >
+                <Scale size={16} />
+                Analyze with AI
+              </button>
+            </div>
+          )}
+
           {!isGroup && !isShape && !isNote && (
-            <CodeLinkSection
-              properties={data.properties}
-              onChange={(props) =>
-                onUpdateNode(selectedNode.id, { properties: props })
-              }
-            />
+            <>
+              <CodeLinkSection
+                properties={data.properties}
+                onChange={(props) =>
+                  onUpdateNode(selectedNode.id, { properties: props })
+                }
+              />
+              <WorkItemLinkSection
+                fields={data.properties}
+                onChange={(fields) =>
+                  onUpdateNode(selectedNode.id, {
+                    properties: { ...data.properties, ...fields },
+                  })
+                }
+              />
+            </>
           )}
 
           {(() => {
@@ -382,6 +423,37 @@ export function PropertiesPanel({
               onChange={(e) => onUpdateEdge(selectedEdge.id, { label: e.target.value })}
             />
           </label>
+          <label>
+            Line routing
+            <select
+              value={parseEdgeRouting(data.routing)}
+              onChange={(e) =>
+                onUpdateEdge(selectedEdge.id, {
+                  routing: e.target.value as EdgeRouting,
+                })
+              }
+            >
+              {EDGE_ROUTING_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="code-link-hint">
+              {EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.hint}
+              {' · '}
+              Drag a connector end to another port. Drag the dots on the line to bend it.
+            </span>
+          </label>
+          {(data.waypoints?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => onUpdateEdge(selectedEdge.id, { waypoints: [] })}
+            >
+              Reset bends
+            </button>
+          )}
           <label>
             Direction
             <select
@@ -508,6 +580,19 @@ export function PropertiesPanel({
               }
             />
           )}
+
+          <WorkItemLinkSection
+            fields={{
+              jiraIssueKey: data.jiraIssueKey,
+              jiraIssueSummary: data.jiraIssueSummary,
+              jiraIssueUrl: data.jiraIssueUrl,
+              adoProject: data.adoProject,
+              adoWorkItemId: data.adoWorkItemId,
+              adoWorkItemTitle: data.adoWorkItemTitle,
+              adoWorkItemUrl: data.adoWorkItemUrl,
+            }}
+            onChange={(fields) => onUpdateEdge(selectedEdge.id, { ...fields })}
+          />
 
           <button
             type="button"

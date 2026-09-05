@@ -22,7 +22,53 @@ export function TemplateSamplePreview({ id }: TemplateSamplePreviewProps) {
       {id === 'infra-azure' && <InfraPreview accent="#0078d4" labels={['Hub', 'Spoke', 'Data']} />}
       {id === 'infra-kubernetes' && <InfraPreview accent="#6366f1" labels={['Ingress', 'Apps', 'Data']} />}
       {id === 'infra-hybrid' && <InfraPreview accent="#0ea5e9" labels={['DC', 'WAN', 'Cloud']} />}
+      {id === 'ai-rag' && <RagPreview />}
+      {id === 'ai-mlops' && <InfraPreview accent="#7c3aed" labels={['Data', 'Train', 'Serve']} />}
+      {id === 'ai-agents' && <AgentsPreview />}
+      {id === 'ai-azure' && <InfraPreview accent="#0078d4" labels={['Edge', 'AI', 'Knowledge']} />}
     </div>
+  )
+}
+
+function RagPreview() {
+  return (
+    <svg viewBox="0 0 200 88" className="template-preview-svg">
+      <rect x="6" y="14" width="36" height="60" rx="3" fill="#fce7f3" stroke="#ec4899" strokeWidth="1.2" />
+      <circle cx="24" cy="32" r="6" fill="#ec4899" opacity="0.7" />
+      <circle cx="24" cy="56" r="6" fill="#742774" opacity="0.7" />
+      <rect x="50" y="14" width="44" height="60" rx="3" fill="#eef2ff" stroke="#6366f1" strokeWidth="1.2" />
+      <rect x="58" y="26" width="28" height="12" rx="2" fill="#6366f1" opacity="0.8" />
+      <rect x="58" y="46" width="28" height="12" rx="2" fill="#8b5cf6" opacity="0.75" />
+      <rect x="102" y="8" width="44" height="72" rx="3" fill="#f5f3ff" stroke="#8b5cf6" strokeWidth="1.2" />
+      <rect x="110" y="20" width="28" height="12" rx="2" fill="#8b5cf6" opacity="0.85" />
+      <rect x="110" y="38" width="28" height="12" rx="2" fill="#be185d" opacity="0.7" />
+      <rect x="110" y="56" width="28" height="12" rx="2" fill="#7c3aed" opacity="0.55" />
+      <rect x="154" y="14" width="40" height="60" rx="3" fill="#ecfdf5" stroke="#10b981" strokeWidth="1.2" />
+      <rect x="160" y="26" width="28" height="10" rx="2" fill="#10b981" opacity="0.8" />
+      <rect x="160" y="42" width="28" height="10" rx="2" fill="#059669" opacity="0.65" />
+      <rect x="160" y="58" width="28" height="10" rx="2" fill="#047857" opacity="0.5" />
+      <path d="M42 44 H50" stroke="#94a3b8" strokeWidth="1.2" />
+      <path d="M94 44 H102" stroke="#94a3b8" strokeWidth="1.2" />
+      <path d="M146 44 H154" stroke="#94a3b8" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+function AgentsPreview() {
+  return (
+    <svg viewBox="0 0 200 88" className="template-preview-svg">
+      <circle cx="24" cy="44" r="10" fill="#fce7f3" stroke="#ec4899" strokeWidth="1.2" />
+      <rect x="48" y="28" width="40" height="32" rx="4" fill="#ede9fe" stroke="#8b5cf6" strokeWidth="1.4" />
+      <rect x="56" y="38" width="24" height="12" rx="2" fill="#8b5cf6" opacity="0.85" />
+      <rect x="100" y="12" width="40" height="24" rx="3" fill="#eef2ff" stroke="#6366f1" strokeWidth="1.2" />
+      <rect x="100" y="44" width="40" height="24" rx="3" fill="#ecfdf5" stroke="#10b981" strokeWidth="1.2" />
+      <rect x="152" y="12" width="40" height="24" rx="3" fill="#dbeafe" stroke="#2563eb" strokeWidth="1.2" />
+      <rect x="152" y="52" width="40" height="24" rx="3" fill="#ffedd5" stroke="#f59e0b" strokeWidth="1.2" />
+      <path d="M34 44 H48" stroke="#94a3b8" strokeWidth="1.2" />
+      <path d="M88 44 H100" stroke="#94a3b8" strokeWidth="1.2" />
+      <path d="M140 24 H152" stroke="#94a3b8" strokeWidth="1.2" />
+      <path d="M120 56 H152" stroke="#94a3b8" strokeWidth="1.2" />
+    </svg>
   )
 }
 

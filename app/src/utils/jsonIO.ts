@@ -1,15 +1,18 @@
 import type { Edge, Node } from '@xyflow/react'
-import type {
-  ArchitectureDocument,
-  Integration,
-  IntegrationDirection,
-  IntegrationFrequency,
-  IntegrationProtocol,
-  SystemNode,
-  SystemProperties,
-  SystemType,
+import {
+  getFlowNodeType,
+  parseEdgeRouting,
+  type ArchitectureDocument,
+  type Integration,
+  type IntegrationDirection,
+  type IntegrationFrequency,
+  type IntegrationProtocol,
+  type Position,
+  type SystemNode,
+  type SystemProperties,
+  type SystemType,
+  type EdgeRouting,
 } from '../types'
-import { getFlowNodeType } from '../types'
 
 export interface IntegrationNodeData extends Record<string, unknown> {
   systemType: SystemType
@@ -41,6 +44,8 @@ export interface IntegrationEdgeData extends Record<string, unknown> {
   interfaceSpec?: string
   color?: string
   changeStatus?: 'unchanged' | 'new' | 'modified' | 'retired'
+  routing?: EdgeRouting
+  waypoints?: Position[]
   /** Runtime: relative flow vs selected box — out leaves selection, in enters it */
   focusRelation?: EdgeFocusRelation
   /** Runtime: id of the selected node driving highlight */
@@ -49,6 +54,13 @@ export interface IntegrationEdgeData extends Record<string, unknown> {
   flowPathColor?: string
   /** Runtime: how edges are colored on the canvas */
   colorBy?: 'direction' | 'protocol' | 'custom' | 'path'
+  jiraIssueKey?: string
+  jiraIssueSummary?: string
+  jiraIssueUrl?: string
+  adoProject?: string
+  adoWorkItemId?: string
+  adoWorkItemTitle?: string
+  adoWorkItemUrl?: string
 }
 
 export function createEmptyDocument(name = 'New Integration Architecture'): ArchitectureDocument {
@@ -109,6 +121,8 @@ export function documentToFlow(document: ArchitectureDocument): {
     id: integration.id,
     source: integration.source,
     target: integration.target,
+    sourceHandle: integration.sourceHandle,
+    targetHandle: integration.targetHandle,
     type: 'integration',
     label: integration.label,
     data: {
@@ -121,6 +135,15 @@ export function documentToFlow(document: ArchitectureDocument): {
       interfaceSpec: integration.interfaceSpec,
       color: integration.color,
       changeStatus: integration.changeStatus ?? 'unchanged',
+      routing: parseEdgeRouting(integration.routing),
+      waypoints: integration.waypoints ?? [],
+      jiraIssueKey: integration.jiraIssueKey,
+      jiraIssueSummary: integration.jiraIssueSummary,
+      jiraIssueUrl: integration.jiraIssueUrl,
+      adoProject: integration.adoProject,
+      adoWorkItemId: integration.adoWorkItemId,
+      adoWorkItemTitle: integration.adoWorkItemTitle,
+      adoWorkItemUrl: integration.adoWorkItemUrl,
     },
   }))
 
@@ -154,6 +177,8 @@ export function flowToDocument(
     id: edge.id,
     source: edge.source,
     target: edge.target,
+    sourceHandle: edge.sourceHandle ?? undefined,
+    targetHandle: edge.targetHandle ?? undefined,
     label: edge.data?.label ?? String(edge.label ?? 'Integration'),
     direction: edge.data?.direction ?? 'bidirectional',
     protocol: edge.data?.protocol ?? 'REST API',
@@ -163,6 +188,15 @@ export function flowToDocument(
     interfaceSpec: edge.data?.interfaceSpec,
     color: edge.data?.color,
     changeStatus: edge.data?.changeStatus,
+    routing: parseEdgeRouting(edge.data?.routing),
+    waypoints: edge.data?.waypoints,
+    jiraIssueKey: edge.data?.jiraIssueKey,
+    jiraIssueSummary: edge.data?.jiraIssueSummary,
+    jiraIssueUrl: edge.data?.jiraIssueUrl,
+    adoProject: edge.data?.adoProject,
+    adoWorkItemId: edge.data?.adoWorkItemId,
+    adoWorkItemTitle: edge.data?.adoWorkItemTitle,
+    adoWorkItemUrl: edge.data?.adoWorkItemUrl,
   }))
 
   return {

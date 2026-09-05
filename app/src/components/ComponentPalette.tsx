@@ -162,12 +162,11 @@ export function ComponentPalette({ onDragStart }: ComponentPaletteProps) {
                       const config = SYSTEM_TYPE_CONFIG[item.type]
                       const service = item.defaultProperties?.service
                       const vendor = item.defaultProperties?.vendor
-                      const paletteIcon =
-                        service && vendor ? (
-                          <ServiceIcon vendor={vendor} service={service} size={18} />
-                        ) : (
-                          <span className="palette-icon">{config.icon}</span>
-                        )
+                      const paletteIcon = service ? (
+                        <ServiceIcon vendor={vendor} service={service} size={18} />
+                      ) : (
+                        <span className="palette-icon">{config.icon}</span>
+                      )
 
                       return (
                         <div

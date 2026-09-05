@@ -1,26 +1,39 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ReactFlowProvider, type Edge, type Node } from '@xyflow/react'
 import {
   Braces,
+  Cloud,
   Download,
+  FileDown,
   FileJson,
+  FileText,
   FolderGit2,
   FolderOpen,
-  GitBranch,
-  KeyRound,
+  History,
   LayoutGrid,
   Plus,
+  Presentation,
+  Settings,
+  Scale,
   Sparkles,
+  Ticket,
   Upload,
   UploadCloud,
 } from 'lucide-react'
 import { CodeLinksPanel } from './components/CodeLinksPanel'
-import { GitIntegrationsPanel } from './components/GitIntegrationsPanel'
+import { WorkItemsPanel } from './components/WorkItemsPanel'
+import { SettingsPanel, type SettingsTab } from './components/SettingsPanel'
+import { CloudBrowserModal } from './components/CloudBrowserModal'
+import { writeCloudSelection } from './utils/cloud/writeSelection'
 import { RepoBrowserModal } from './components/RepoBrowserModal'
 import { SwaggerInjectorModal } from './components/SwaggerInjectorModal'
 import { AiDiagramModal } from './components/AiDiagramModal'
-import { AiEnginesPanel } from './components/AiEnginesPanel'
+import { AiAnalysisModal } from './components/AiAnalysisModal'
+import { AuditTrailPanel } from './components/AuditTrailPanel'
+
 import { isAzureDevOpsConnected, isGitHubConnected } from './utils/gitCredentials'
+
+import { collectLinkedWorkItems } from './utils/workItemLink'
 import { writeAzureFile } from './utils/gitProviders/azureDevOpsApi'
 import { writeGitHubFile } from './utils/gitProviders/githubApi'
 import type { RepoSelection } from './utils/gitProviders/types'
@@ -46,7 +59,7 @@ import {
 import { ComponentPalette } from './components/ComponentPalette'
 import { DiagramBreadcrumb } from './components/DiagramBreadcrumb'
 import { DrawModeControls } from './components/DrawModeControls'
-import { ExportMenu } from './components/ExportMenu'
+import { AppMenuBar, type AppMenuGroup } from './components/AppMenuBar'
 import { IntegrationCanvas, type IntegrationCanvasHandle } from './components/IntegrationCanvas'
 import { JsonPanel } from './components/JsonPanel'
 import { PropertiesPanel } from './components/PropertiesPanel'
@@ -62,6 +75,7 @@ import {
   type ArchitectureTemplateId,
 } from './data/templates'
 import { mergeGeneratedIntoView, type AiPlacement } from './utils/aiDiagram'
+import { applyAudit, type AuditExtras } from './utils/auditLog'
 import { countSavedKeys } from './utils/aiProviders'
 import {
   exitElementFullscreen,
@@ -71,35 +85,68 @@ import {
   saveMenusHidden,
   subscribeFullscreenChange,
 } from './utils/fullscreen'
+import {
+  autosaveFingerprint,
+  formatAutosaveTime,
+  loadProjectAutosave,
+  saveProjectAutosave,
+} from './utils/projectAutosave'
 
-const INITIAL_TAB = createProjectTab(createFromTemplate('enterprise'))
+function createInitialWorkspace() {
+  const restored = loadProjectAutosave()
+  if (restored) return restored
+  const tab = createProjectTab(createFromTemplate('enterprise'))
+  return { tabs: [tab], activeTabId: tab.id, savedAt: null as string | null }
+}
+
+const INITIAL_WORKSPACE = createInitialWorkspace()
 
 function App() {
-  const [tabs, setTabs] = useState<ProjectTab[]>([INITIAL_TAB])
-  const [activeTabId, setActiveTabId] = useState(INITIAL_TAB.id)
+  const [tabs, setTabs] = useState<ProjectTab[]>(INITIAL_WORKSPACE.tabs)
+  const [activeTabId, setActiveTabId] = useState(INITIAL_WORKSPACE.activeTabId)
   const [selectedNode, setSelectedNode] = useState<Node<IntegrationNodeData> | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge<IntegrationEdgeData> | null>(null)
   const [showJsonPanel, setShowJsonPanel] = useState(false)
   const [jsonError, setJsonError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showCodeLinks, setShowCodeLinks] = useState(false)
-  const [showGitIntegrations, setShowGitIntegrations] = useState(false)
+  const [showWorkItems, setShowWorkItems] = useState(false)
+  const [showAuditTrail, setShowAuditTrail] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('ai')
   const [repoBrowserMode, setRepoBrowserMode] = useState<'pull' | 'push' | null>(null)
+  const [cloudBrowserMode, setCloudBrowserMode] = useState<'open' | 'save' | null>(null)
   const [gitMessage, setGitMessage] = useState<string | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
   const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [templatePickerMode, setTemplatePickerMode] = useState<'project' | 'sub-tab'>('project')
   const [showSwaggerInjector, setShowSwaggerInjector] = useState(false)
   const [showAiDiagram, setShowAiDiagram] = useState(false)
-  const [showAiEngines, setShowAiEngines] = useState(false)
+  const [aiChatMounted, setAiChatMounted] = useState(false)
+  const [showAiAnalysis, setShowAiAnalysis] = useState(false)
+  const [analysisFocus, setAnalysisFocus] = useState<string | undefined>(undefined)
+
   const [exporting, setExporting] = useState(false)
   const [menusHidden, setMenusHidden] = useState(loadMenusHidden)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const canvasRef = useRef<IntegrationCanvasHandle>(null)
   const appRef = useRef<HTMLDivElement>(null)
   const autoHidMenusRef = useRef(false)
+  const skipFirstAutosave = useRef(true)
+  const autosaveTimer = useRef<number | null>(null)
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
+  const lastAutosaveJson = useRef(autosaveFingerprint(INITIAL_WORKSPACE.tabs, INITIAL_WORKSPACE.activeTabId))
+  const [autosaveStatus, setAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
+    INITIAL_WORKSPACE.savedAt ? 'saved' : 'idle',
+  )
+  const [autosaveAt, setAutosaveAt] = useState<string | null>(INITIAL_WORKSPACE.savedAt)
+
+  tabsRef.current = tabs
+  activeTabIdRef.current = activeTabId
 
   const gitConnected = isGitHubConnected() || isAzureDevOpsConnected()
+
   const savedAiKeys = countSavedKeys()
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
@@ -107,6 +154,7 @@ function App() {
   const drillPath = activeTab.drillPath
   const diagramView = getDiagramView(document, drillPath)
   const linkedCount = getLinkedSystems(document.systems).length
+  const workItemCount = collectLinkedWorkItems(document).length
 
   const updateActiveTab = useCallback(
     (updater: (tab: ProjectTab) => ProjectTab) => {
@@ -118,14 +166,25 @@ function App() {
   )
 
   const setDocument = useCallback(
-    (doc: ArchitectureDocument | ((prev: ArchitectureDocument) => ArchitectureDocument)) => {
-      updateActiveTab((tab) => ({
-        ...tab,
-        document: typeof doc === 'function' ? doc(tab.document) : doc,
-      }))
+    (
+      doc: ArchitectureDocument | ((prev: ArchitectureDocument) => ArchitectureDocument),
+      extras?: AuditExtras,
+    ) => {
+      updateActiveTab((tab) => {
+        const next = typeof doc === 'function' ? doc(tab.document) : doc
+        if (next === tab.document) return tab
+        return { ...tab, document: applyAudit(tab.document, next, extras) }
+      })
     },
     [updateActiveTab],
   )
+
+  const handleClearAudit = useCallback(() => {
+    updateActiveTab((tab) => ({
+      ...tab,
+      document: { ...tab.document, audit: [] },
+    }))
+  }, [updateActiveTab])
 
   const remountCanvas = useCallback(() => {
     updateActiveTab((tab) => ({ ...tab, canvasKey: tab.canvasKey + 1 }))
@@ -146,7 +205,11 @@ function App() {
     (systemId: string, label: string) => {
       updateActiveTab((tab) => ({
         ...tab,
-        document: ensureSubDiagram(tab.document, tab.drillPath, systemId),
+        document: applyAudit(
+          tab.document,
+          ensureSubDiagram(tab.document, tab.drillPath, systemId),
+          { kind: 'navigate', summary: `Opened sub-diagram for ${label}` },
+        ),
         drillPath: [...tab.drillPath, { systemId, label }],
         canvasKey: tab.canvasKey + 1,
       }))
@@ -192,7 +255,10 @@ function App() {
         : current.drillPath
       return {
         ...current,
-        document: removeSubTab(current.document, tab.path),
+        document: applyAudit(current.document, removeSubTab(current.document, tab.path), {
+          kind: 'remove',
+          summary: `Removed sub-diagram ${tab.path[tab.path.length - 1]?.label ?? tab.id}`,
+        }),
         drillPath: nextPath,
         canvasKey: current.canvasKey + 1,
       }
@@ -201,13 +267,20 @@ function App() {
   }
 
   const handleSelectTemplate = (id: ArchitectureTemplateId) => {
-    const doc = createFromTemplate(id)
+    const stamped = createFromTemplate(id)
+    const doc = applyAudit(stamped, stamped, {
+      kind: 'add',
+      summary: `Created from template “${id}”`,
+    })
     if (templatePickerMode === 'sub-tab') {
       updateActiveTab((tab) => {
         const added = addTemplatedSubDiagram(tab.document, tab.drillPath, doc)
         return {
           ...tab,
-          document: added.document,
+          document: applyAudit(tab.document, added.document, {
+            kind: 'add',
+            summary: `Added sub-diagram from template “${id}”`,
+          }),
           drillPath: [...tab.drillPath, { systemId: added.systemId, label: added.label }],
           canvasKey: tab.canvasKey + 1,
         }
@@ -248,13 +321,18 @@ function App() {
         setJsonError(null)
 
         if (asNewTab) {
-          const newTab = createProjectTab(parsed)
+          const newTab = createProjectTab(
+            applyAudit(parsed, parsed, { kind: 'import', summary: 'Imported architecture JSON' }),
+          )
           setTabs((prev) => [...prev, newTab])
           setActiveTabId(newTab.id)
         } else {
           updateActiveTab((tab) => ({
             ...tab,
-            document: parsed,
+            document: applyAudit(tab.document, parsed, {
+              kind: 'import',
+              summary: 'Replaced project from JSON',
+            }),
             drillPath: [],
             canvasKey: tab.canvasKey + 1,
           }))
@@ -374,6 +452,15 @@ function App() {
         interfaceSpec: data.interfaceSpec !== undefined ? data.interfaceSpec : i.interfaceSpec,
         color: 'color' in data ? data.color : i.color,
         changeStatus: 'changeStatus' in data ? data.changeStatus : i.changeStatus,
+        routing: data.routing ?? i.routing,
+        waypoints: 'waypoints' in data ? data.waypoints : i.waypoints,
+        jiraIssueKey: 'jiraIssueKey' in data ? data.jiraIssueKey : i.jiraIssueKey,
+        jiraIssueSummary: 'jiraIssueSummary' in data ? data.jiraIssueSummary : i.jiraIssueSummary,
+        jiraIssueUrl: 'jiraIssueUrl' in data ? data.jiraIssueUrl : i.jiraIssueUrl,
+        adoProject: 'adoProject' in data ? data.adoProject : i.adoProject,
+        adoWorkItemId: 'adoWorkItemId' in data ? data.adoWorkItemId : i.adoWorkItemId,
+        adoWorkItemTitle: 'adoWorkItemTitle' in data ? data.adoWorkItemTitle : i.adoWorkItemTitle,
+        adoWorkItemUrl: 'adoWorkItemUrl' in data ? data.adoWorkItemUrl : i.adoWorkItemUrl,
       })),
     )
     remountCanvas()
@@ -418,6 +505,47 @@ function App() {
   useEffect(() => {
     saveMenusHidden(menusHidden)
   }, [menusHidden])
+
+  const flushAutosave = useCallback(() => {
+    const fingerprint = autosaveFingerprint(tabsRef.current, activeTabIdRef.current)
+    if (fingerprint === lastAutosaveJson.current) {
+      setAutosaveStatus((prev) => (prev === 'saving' ? 'saved' : prev))
+      return
+    }
+    try {
+      const savedAt = saveProjectAutosave(tabsRef.current, activeTabIdRef.current)
+      lastAutosaveJson.current = fingerprint
+      setAutosaveAt(savedAt)
+      setAutosaveStatus('saved')
+    } catch {
+      setAutosaveStatus('error')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (skipFirstAutosave.current) {
+      skipFirstAutosave.current = false
+      return
+    }
+    setAutosaveStatus('saving')
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = window.setTimeout(() => {
+      flushAutosave()
+      autosaveTimer.current = null
+    }, 400)
+    return () => {
+      if (autosaveTimer.current) {
+        window.clearTimeout(autosaveTimer.current)
+        autosaveTimer.current = null
+      }
+    }
+  }, [tabs, activeTabId, flushAutosave])
+
+  useEffect(() => {
+    const onLeave = () => flushAutosave()
+    window.addEventListener('beforeunload', onLeave)
+    return () => window.removeEventListener('beforeunload', onLeave)
+  }, [flushAutosave])
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -464,18 +592,23 @@ function App() {
 
   const handleAiGenerate = (generated: ArchitectureDocument, placement: AiPlacement) => {
     if (placement === 'new-tab') {
-      const newTab = createProjectTab(generated)
+      const newTab = createProjectTab(
+        applyAudit(generated, generated, { kind: 'ai', summary: 'Drew architecture with AI' }),
+      )
       setTabs((prev) => [...prev, newTab])
       setActiveTabId(newTab.id)
     } else if (placement === 'replace') {
       updateActiveTab((tab) => ({
         ...tab,
-        document: generated,
+        document: applyAudit(tab.document, generated, { kind: 'ai', summary: 'Replaced diagram with AI' }),
         drillPath: [],
         canvasKey: tab.canvasKey + 1,
       }))
     } else {
-      setDocument((prev) => mergeGeneratedIntoView(prev, drillPath, generated))
+      setDocument(
+        (prev) => mergeGeneratedIntoView(prev, drillPath, generated),
+        { kind: 'ai', summary: 'Merged AI-generated architecture' },
+      )
       remountCanvas()
     }
     clearSelection()
@@ -483,6 +616,210 @@ function App() {
       `Drew ${generated.systems.length} systems and ${generated.integrations.length} integrations with SpaceXAI`,
     )
   }
+
+  const menus: AppMenuGroup[] = useMemo(
+    () => [
+      {
+        id: 'file',
+        label: 'File',
+        items: [
+          { id: 'new-tab', label: 'New tab', hint: 'Start from a template', icon: Plus, onSelect: handleNewTab },
+          {
+            id: 'import',
+            label: 'Import JSON…',
+            hint: 'Open a project file',
+            icon: Upload,
+            onSelect: () => fileInputRef.current?.click(),
+          },
+          { id: 'edit-json', label: 'Edit JSON', hint: 'Raw architecture document', icon: FileJson, onSelect: handleOpenJsonEditor },
+          { id: 'sep-export', type: 'separator' },
+          {
+            id: 'export-json',
+            label: 'Export JSON',
+            hint: 'Machine-readable project file',
+            icon: FileDown,
+            disabled: exporting,
+            onSelect: handleExport,
+          },
+          {
+            id: 'export-pptx',
+            label: 'Export PowerPoint',
+            hint: 'Diagram plus spoken briefing',
+            icon: Presentation,
+            disabled: exporting,
+            onSelect: () => void runOfficeExport('pptx'),
+          },
+          {
+            id: 'export-docx',
+            label: 'Export Word SAD',
+            hint: 'Solution Architecture Document',
+            icon: FileText,
+            disabled: exporting,
+            onSelect: () => void runOfficeExport('docx'),
+          },
+        ],
+      },
+      {
+        id: 'cloud',
+        label: 'Cloud & Git',
+        items: [
+          { id: 'cloud-open', label: 'Open from cloud…', hint: 'OneDrive, SharePoint, Google, iCloud', icon: Cloud, onSelect: () => setCloudBrowserMode('open') },
+          { id: 'cloud-save', label: 'Save to cloud…', hint: 'Write this project as JSON', icon: Cloud, onSelect: () => setCloudBrowserMode('save') },
+          { id: 'sep-git', type: 'separator' },
+          {
+            id: 'git-pull',
+            label: 'Pull from Git…',
+            hint: gitConnected ? 'GitHub or Azure DevOps' : 'Connect Git in Settings first',
+            icon: Download,
+            disabled: !gitConnected,
+            onSelect: () => setRepoBrowserMode('pull'),
+          },
+          {
+            id: 'git-push',
+            label: 'Push to Git…',
+            hint: gitConnected ? 'GitHub or Azure DevOps' : 'Connect Git in Settings first',
+            icon: UploadCloud,
+            disabled: !gitConnected,
+            onSelect: () => setRepoBrowserMode('push'),
+          },
+        ],
+      },
+      {
+        id: 'ai',
+        label: 'AI',
+        items: [
+          {
+            id: 'draw-ai',
+            label: 'Draw with AI…',
+            hint: 'Generate or refine the diagram',
+            icon: Sparkles,
+            onSelect: () => {
+              setAiChatMounted(true)
+              setShowAiDiagram(true)
+            },
+          },
+          {
+            id: 'analyze',
+            label: 'Analyze capabilities…',
+            hint: 'Pros and cons of the landscape',
+            icon: Scale,
+            onSelect: () => {
+              setAnalysisFocus(undefined)
+              setShowAiAnalysis(true)
+            },
+          },
+        ],
+      },
+      {
+        id: 'tools',
+        label: 'Tools',
+        items: [
+          { id: 'swagger', label: 'Inject Swagger…', hint: 'Add APIs from an OpenAPI spec', icon: Braces, onSelect: () => setShowSwaggerInjector(true) },
+          {
+            id: 'code-links',
+            label: linkedCount > 0 ? `Code links (${linkedCount})` : 'Code links',
+            hint: 'Components linked to repositories',
+            icon: FolderGit2,
+            onSelect: () => setShowCodeLinks(true),
+          },
+          {
+            id: 'work-items',
+            label: workItemCount > 0 ? `Work items (${workItemCount})` : 'Work items',
+            hint: 'Jira and Azure DevOps links',
+            icon: Ticket,
+            onSelect: () => setShowWorkItems(true),
+          },
+          {
+            id: 'audit',
+            label: (document.audit?.length ?? 0) > 0 ? `Audit trail (${document.audit?.length})` : 'Audit trail',
+            hint: 'History of every project change',
+            icon: History,
+            onSelect: () => setShowAuditTrail(true),
+          },
+        ],
+      },
+      {
+        id: 'view',
+        label: 'View',
+        items: [
+          {
+            id: 'menus',
+            label: menusHidden ? 'Show menus' : 'Hide menus',
+            shortcut: 'Ctrl+\\',
+            onSelect: toggleMenus,
+          },
+          {
+            id: 'fullscreen',
+            label: isFullscreen ? 'Exit fullscreen' : 'Draw fullscreen',
+            shortcut: 'Ctrl+Shift+F',
+            onSelect: () => void toggleFullscreen(),
+          },
+        ],
+      },
+      {
+        id: 'settings',
+        label: 'Settings',
+        items: [
+          {
+            id: 'settings-ai',
+            label: 'AI engines',
+            hint: savedAiKeys > 0 ? `${savedAiKeys} key${savedAiKeys === 1 ? '' : 's'} saved` : 'Keys and default model',
+            icon: Settings,
+            onSelect: () => {
+              setSettingsTab('ai')
+              setShowSettings(true)
+            },
+          },
+          {
+            id: 'settings-git',
+            label: 'Git',
+            hint: 'GitHub and Azure DevOps',
+            icon: UploadCloud,
+            onSelect: () => {
+              setSettingsTab('git')
+              setShowSettings(true)
+            },
+          },
+          {
+            id: 'settings-jira',
+            label: 'Jira',
+            hint: 'Work item linking',
+            icon: Ticket,
+            onSelect: () => {
+              setSettingsTab('jira')
+              setShowSettings(true)
+            },
+          },
+          {
+            id: 'settings-cloud',
+            label: 'Cloud storage',
+            hint: 'OneDrive, SharePoint, Google, iCloud',
+            icon: Cloud,
+            onSelect: () => {
+              setSettingsTab('cloud')
+              setShowSettings(true)
+            },
+          },
+        ],
+      },
+    ],
+    [
+      exporting,
+      gitConnected,
+      handleExport,
+      handleNewTab,
+      handleOpenJsonEditor,
+      isFullscreen,
+      linkedCount,
+      menusHidden,
+      document.audit?.length,
+      runOfficeExport,
+      savedAiKeys,
+      toggleFullscreen,
+      toggleMenus,
+      workItemCount,
+    ],
+  )
 
   return (
     <div
@@ -497,76 +834,25 @@ function App() {
             <span>End-to-end integration mapping · SaaS · Cloud · On-Premise</span>
           </div>
         </div>
-        <div className="toolbar-actions">
-          <button type="button" className="btn-secondary" onClick={handleNewTab}>
-            <Plus size={16} />
-            New Tab
-          </button>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload size={16} />
-            Import JSON
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            hidden
-            onChange={handleFileUpload}
-          />
-          <button type="button" className="btn-secondary" onClick={handleOpenJsonEditor}>
-            <FileJson size={16} />
-            Edit JSON
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setShowGitIntegrations(true)}>
-            <GitBranch size={16} />
-            Git{gitConnected ? ' ✓' : ''}
-          </button>
-          {gitConnected && (
-            <>
-              <button type="button" className="btn-secondary" onClick={() => setRepoBrowserMode('pull')}>
-                <Download size={16} />
-                Pull
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setRepoBrowserMode('push')}>
-                <UploadCloud size={16} />
-                Push
-              </button>
-            </>
-          )}
-          <button type="button" className="btn-secondary" onClick={() => setShowAiEngines(true)}>
-            <KeyRound size={16} />
-            AI Keys{savedAiKeys > 0 ? ` (${savedAiKeys})` : ''}
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setShowAiDiagram(true)}>
-            <Sparkles size={16} />
-            Draw with AI
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setShowSwaggerInjector(true)}>
-            <Braces size={16} />
-            Inject Swagger
-          </button>
-          <button type="button" className="btn-secondary" onClick={() => setShowCodeLinks(true)}>
-            <FolderGit2 size={16} />
-            Code Links{linkedCount > 0 ? ` (${linkedCount})` : ''}
-          </button>
-          <ExportMenu
-            exporting={exporting}
-            onExportJson={handleExport}
-            onExportPptx={() => void runOfficeExport('pptx')}
-            onExportDocx={() => void runOfficeExport('docx')}
-          />
-          <DrawModeControls
-            variant="toolbar"
-            isFullscreen={isFullscreen}
-            menusHidden={menusHidden}
-            onToggleFullscreen={() => void toggleFullscreen()}
-            onToggleMenus={toggleMenus}
-          />
-        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={handleFileUpload}
+        />
+        <AppMenuBar
+          menus={menus}
+          trailing={
+            <DrawModeControls
+              variant="compact"
+              isFullscreen={isFullscreen}
+              menusHidden={menusHidden}
+              onToggleFullscreen={() => void toggleFullscreen()}
+              onToggleMenus={toggleMenus}
+            />
+          }
+        />
       </header>
 
       <ProjectTabs
@@ -606,6 +892,21 @@ function App() {
               {diagramView.systems.length} systems · {diagramView.integrations.length} integrations
               {drillPath.length > 0 && ' (detail)'}
             </span>
+            <span
+              className={`autosave-status autosave-${autosaveStatus}`}
+              title={
+                autosaveStatus === 'error'
+                  ? 'Could not autosave (browser storage may be full)'
+                  : autosaveAt
+                    ? `Last autosave ${new Date(autosaveAt).toLocaleString()}`
+                    : 'Changes save automatically in this browser'
+              }
+            >
+              {autosaveStatus === 'saving' && 'Saving…'}
+              {autosaveStatus === 'saved' && `Autosaved${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`}
+              {autosaveStatus === 'error' && 'Autosave failed'}
+              {autosaveStatus === 'idle' && 'Autosave on'}
+            </span>
           </div>
           <DiagramBreadcrumb
             documentName={document.metadata.name}
@@ -613,10 +914,11 @@ function App() {
             levelLabel={diagramView.parentLabel}
             onNavigate={handleNavigateDiagram}
           />
-          <ReactFlowProvider>
-            <IntegrationCanvas
-              ref={canvasRef}
-              key={`${activeTab.id}-${activeTab.canvasKey}`}
+          <div className="canvas-flow">
+            <ReactFlowProvider>
+              <IntegrationCanvas
+                ref={canvasRef}
+                key={`${activeTab.id}-${activeTab.canvasKey}`}
               document={document}
               diagramPath={drillPath}
               onDocumentChange={setDocument}
@@ -631,7 +933,10 @@ function App() {
               menusHidden={menusHidden}
               onToggleFullscreen={() => void toggleFullscreen()}
               onToggleMenus={toggleMenus}
-              onOpenAi={() => setShowAiDiagram(true)}
+              onOpenAi={() => {
+                setAiChatMounted(true)
+                setShowAiDiagram(true)
+              }}
               selectionKey={selectedNode?.id ?? selectedEdge?.id ?? null}
               properties={
                 <PropertiesPanel
@@ -644,10 +949,15 @@ function App() {
                   onDeleteNode={handleDeleteNode}
                   onDeleteEdge={handleDeleteEdge}
                   onDrillInto={handleDrillInto}
+                  onAnalyzeCapability={(label) => {
+                    setAnalysisFocus(label)
+                    setShowAiAnalysis(true)
+                  }}
                 />
               }
             />
-          </ReactFlowProvider>
+            </ReactFlowProvider>
+          </div>
         </main>
       </div>
 
@@ -671,8 +981,31 @@ function App() {
         />
       )}
 
-      {showGitIntegrations && (
-        <GitIntegrationsPanel onClose={() => setShowGitIntegrations(false)} />
+      {showWorkItems && (
+        <WorkItemsPanel
+          document={document}
+          onClose={() => setShowWorkItems(false)}
+          onSelectSystem={(id) => {
+            setShowWorkItems(false)
+            setFocusNodeId(id)
+          }}
+        />
+      )}
+
+      {showAuditTrail && (
+        <AuditTrailPanel
+          document={document}
+          onClose={() => setShowAuditTrail(false)}
+          onClear={handleClearAudit}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsPanel
+          tab={settingsTab}
+          onTabChange={setSettingsTab}
+          onClose={() => setShowSettings(false)}
+        />
       )}
 
       {repoBrowserMode && (
@@ -681,6 +1014,24 @@ function App() {
           onClose={() => setRepoBrowserMode(null)}
           onPullJson={(content) => handleImport(content, true)}
           onPushPath={handlePushToRepo}
+        />
+      )}
+
+      {cloudBrowserMode && (
+        <CloudBrowserModal
+          mode={cloudBrowserMode}
+          suggestedName={`${document.metadata.name.replace(/\s+/g, '-').toLowerCase()}.json`}
+          onClose={() => setCloudBrowserMode(null)}
+          onOpen={(content, selection) => {
+            handleImport(content, true)
+            setCloudBrowserMode(null)
+            setGitMessage(`Opened ${selection.fileName} from ${selection.store}`)
+          }}
+          onSave={async (selection) => {
+            await writeCloudSelection(selection, serializeArchitecture(document))
+            setCloudBrowserMode(null)
+            setGitMessage(`Saved ${selection.fileName} to ${selection.store}`)
+          }}
         />
       )}
 
@@ -701,20 +1052,31 @@ function App() {
         />
       )}
 
-      {showAiDiagram && (
+      {aiChatMounted && (
         <AiDiagramModal
+          open={showAiDiagram}
           currentDocument={document}
           onGenerate={handleAiGenerate}
           onManageKeys={() => {
             setShowAiDiagram(false)
-            setShowAiEngines(true)
+            setSettingsTab('ai')
+            setShowSettings(true)
           }}
           onClose={() => setShowAiDiagram(false)}
         />
       )}
 
-      {showAiEngines && (
-        <AiEnginesPanel onClose={() => setShowAiEngines(false)} />
+      {showAiAnalysis && (
+        <AiAnalysisModal
+          document={document}
+          focusLabel={analysisFocus}
+          onManageKeys={() => {
+            setShowAiAnalysis(false)
+            setSettingsTab('ai')
+            setShowSettings(true)
+          }}
+          onClose={() => setShowAiAnalysis(false)}
+        />
       )}
 
       {gitMessage && (

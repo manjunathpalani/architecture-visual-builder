@@ -1,7 +1,8 @@
-import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
+import { NodeResizer, type NodeProps } from '@xyflow/react'
 import type { DrawingShapeKind } from '../../types'
 import { DRAWING_SHAPE_LABELS } from '../../types'
 import type { IntegrationNodeData } from '../../utils/jsonIO'
+import { NodeConnectors } from './NodeConnectors'
 
 function shapeKind(data: IntegrationNodeData): DrawingShapeKind {
   const raw = data.properties.shape as DrawingShapeKind | undefined
@@ -149,14 +150,7 @@ export function ShapeNode({ data, selected }: NodeProps) {
         handleClassName="resize-handle"
       />
 
-      <Handle type="target" position={Position.Top} id="t-top" className="shape-handle" />
-      <Handle type="source" position={Position.Top} id="s-top" className="shape-handle shape-handle-source" />
-      <Handle type="target" position={Position.Right} id="t-right" className="shape-handle" />
-      <Handle type="source" position={Position.Right} id="s-right" className="shape-handle shape-handle-source" />
-      <Handle type="target" position={Position.Bottom} id="t-bottom" className="shape-handle" />
-      <Handle type="source" position={Position.Bottom} id="s-bottom" className="shape-handle shape-handle-source" />
-      <Handle type="target" position={Position.Left} id="t-left" className="shape-handle" />
-      <Handle type="source" position={Position.Left} id="s-left" className="shape-handle shape-handle-source" />
+      <NodeConnectors variant="shape" />
 
       <div
         className={`shape-node resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''}`}

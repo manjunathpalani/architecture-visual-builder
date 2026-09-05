@@ -241,11 +241,178 @@ export function AzureDataFactoryIcon({ size = 20, ...props }: IconProps) {
   )
 }
 
+export function JiraIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path d="M12 3l7 7-7 7-7-7 7-7z" fill="#1868DB" opacity="0.2" />
+      <path d="M12 6.5c2.2 2.2 2.2 5.8 0 8" stroke="#1868DB" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 4c3.6 3.2 3.6 8.8 0 12" stroke="#2684FF" strokeWidth="1.8" strokeLinecap="round" />
+    </Icon>
+  )
+}
+
+export function AzureDevOpsIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path d="M6 9l4-5 8 3v10l-8 3-4-4 8 1V8L10 9v6L6 13V9z" fill="#0078d4" />
+    </Icon>
+  )
+}
+
 export function AzureAksIcon({ size = 20, ...props }: IconProps) {
   return (
     <Icon size={size} {...props}>
       <polygon points="12,4 20,20 4,20" stroke="#0078d4" strokeWidth="1.5" fill="#0078d4" fillOpacity="0.15" />
       <circle cx="12" cy="14" r="2" fill="#0078d4" />
+    </Icon>
+  )
+}
+
+/** Power Platform product stencils — geometric marks, not official logos. */
+export function PowerPlatformIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <circle cx="12" cy="7.2" r="4.2" fill="#742774" />
+      <circle cx="16.8" cy="12" r="4.2" fill="#0066FF" />
+      <circle cx="12" cy="16.8" r="4.2" fill="#F2C811" />
+      <circle cx="7.2" cy="12" r="4.2" fill="#00BCF2" />
+    </Icon>
+  )
+}
+
+export function PowerAppsIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="4" y="5" width="16" height="14" rx="2.5" fill="#742774" />
+      <polygon points="10,9 10,15 16.5,12" fill="#fff" />
+    </Icon>
+  )
+}
+
+export function PowerAppsCanvasIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="4" y="5" width="16" height="14" rx="2.5" fill="#742774" />
+      <rect x="7" y="8" width="10" height="8" rx="1" fill="#fff" opacity="0.95" />
+      <path d="M8.5 14l2-3 1.5 2 1.5-2.5 2 3.5" stroke="#742774" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+    </Icon>
+  )
+}
+
+export function PowerAppsModelIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="4" y="5" width="16" height="14" rx="2.5" fill="#5B2C6F" />
+      <path d="M7 9h10M7 12h10M7 15h6" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" />
+    </Icon>
+  )
+}
+
+export function PowerAutomateIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path
+        d="M7.2 13.5a5 5 0 019.2-2.2"
+        stroke="#0066FF"
+        strokeWidth="2"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M16.4 8.6l.4 3.2-3.1-.6" fill="#0066FF" />
+      <path
+        d="M16.8 10.5a5 5 0 01-9.2 2.2"
+        stroke="#00BCF2"
+        strokeWidth="2"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M7.6 15.4l-.4-3.2 3.1.6" fill="#00BCF2" />
+    </Icon>
+  )
+}
+
+export function PowerAutomateDesktopIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="4" y="5" width="16" height="11" rx="1.5" stroke="#0066FF" strokeWidth="1.6" />
+      <path d="M9 18h6M12 16v2" stroke="#0066FF" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M8 10.5h3.5l-1.2 3h3.2" stroke="#0066FF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
+  )
+}
+
+export function PowerBiIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="4.5" y="14" width="4" height="6" rx="0.8" fill="#F2C811" />
+      <rect x="10" y="9.5" width="4" height="10.5" rx="0.8" fill="#F2C811" />
+      <rect x="15.5" y="4.5" width="4" height="15.5" rx="0.8" fill="#E6B800" />
+    </Icon>
+  )
+}
+
+export function PowerPagesIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <circle cx="12" cy="12" r="8" stroke="#0EA5E9" strokeWidth="1.6" fill="#E0F2FE" />
+      <ellipse cx="12" cy="12" rx="3.5" ry="8" stroke="#0EA5E9" strokeWidth="1.3" />
+      <path d="M4.5 12h15" stroke="#0EA5E9" strokeWidth="1.3" />
+    </Icon>
+  )
+}
+
+export function DataverseIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <ellipse cx="12" cy="7" rx="7" ry="2.6" fill="#7DD3FC" stroke="#0284C7" strokeWidth="1.2" />
+      <path d="M5 7v5c0 1.5 3.1 2.6 7 2.6s7-1.1 7-2.6V7" fill="#BAE6FD" stroke="#0284C7" strokeWidth="1.2" />
+      <path d="M5 12v5c0 1.5 3.1 2.6 7 2.6s7-1.1 7-2.6v-5" fill="#7DD3FC" stroke="#0284C7" strokeWidth="1.2" />
+    </Icon>
+  )
+}
+
+export function CopilotStudioIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path
+        d="M5 7.5c0-1.4 1.2-2.5 2.6-2.5h8.8C17.8 5 19 6.1 19 7.5v6c0 1.4-1.2 2.5-2.6 2.5H10l-4 3v-3.2C4.8 15.4 5 14.6 5 13.5v-6z"
+        fill="#5B2C6F"
+      />
+      <path d="M9 10.2l1.1 2.3 2.5.2-2 1.6.6 2.4L9 15.3l-2.2 1.4.6-2.4-2-1.6 2.5-.2L9 10.2z" fill="#FBBF24" />
+    </Icon>
+  )
+}
+
+export function AiBuilderIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" fill="#C43B8C" />
+      <circle cx="7" cy="17" r="1.4" fill="#742774" />
+      <circle cx="12" cy="19" r="1.4" fill="#742774" />
+      <circle cx="17" cy="17" r="1.4" fill="#742774" />
+      <path d="M11.2 14.6L7.8 16.2M12.8 14.8l3.4 1.4" stroke="#742774" strokeWidth="1.2" />
+    </Icon>
+  )
+}
+
+export function PowerConnectorIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="3" y="9" width="7" height="6" rx="1.2" fill="#742774" />
+      <rect x="14" y="9" width="7" height="6" rx="1.2" fill="#0066FF" />
+      <path d="M10 12h4" stroke="#64748b" strokeWidth="2" strokeLinecap="round" />
+      <path d="M5 9V7.5M8 9V7.5M16 15v1.5M19 15v1.5" stroke="#742774" strokeWidth="1.4" strokeLinecap="round" />
+    </Icon>
+  )
+}
+
+export function DataGatewayIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path d="M6 14h12v5H6z" fill="#5B2C6F" />
+      <path d="M8 14V11h8v3" stroke="#5B2C6F" strokeWidth="1.5" fill="none" />
+      <path d="M8 8.5a4 4 0 018 0" stroke="#00BCF2" strokeWidth="1.6" fill="none" strokeLinecap="round" />
+      <circle cx="12" cy="16.5" r="1.1" fill="#fff" />
     </Icon>
   )
 }
@@ -278,6 +445,23 @@ const AZURE_ICON_MAP: Record<string, (props: IconProps) => ReactNode> = {
   'Entra ID': AzureEntraIcon,
   'Data Factory': AzureDataFactoryIcon,
   AKS: AzureAksIcon,
+  'Azure DevOps': AzureDevOpsIcon,
+}
+
+const POWER_PLATFORM_ICON_MAP: Record<string, (props: IconProps) => ReactNode> = {
+  'Power Automate Desktop': PowerAutomateDesktopIcon,
+  'Model-driven App': PowerAppsModelIcon,
+  'Custom Connector': PowerConnectorIcon,
+  'Canvas App': PowerAppsCanvasIcon,
+  'Copilot Studio': CopilotStudioIcon,
+  'Power Automate': PowerAutomateIcon,
+  'Power Platform': PowerPlatformIcon,
+  'Power Apps': PowerAppsIcon,
+  'Power Pages': PowerPagesIcon,
+  'Data Gateway': DataGatewayIcon,
+  'AI Builder': AiBuilderIcon,
+  Dataverse: DataverseIcon,
+  'Power BI': PowerBiIcon,
 }
 
 export function ServiceIcon({
@@ -291,6 +475,9 @@ export function ServiceIcon({
 }) {
   if (!service) return null
 
+  const powerIcon = POWER_PLATFORM_ICON_MAP[service]
+  if (powerIcon) return powerIcon({ size })
+
   if (vendor === 'AWS' || vendor?.includes('AWS')) {
     const IconComponent = AWS_ICON_MAP[service]
     if (IconComponent) return <IconComponent size={size} />
@@ -299,6 +486,10 @@ export function ServiceIcon({
   if (vendor?.includes('Azure') || vendor?.includes('Microsoft')) {
     const IconComponent = AZURE_ICON_MAP[service]
     if (IconComponent) return <IconComponent size={size} />
+  }
+
+  if (vendor?.includes('Atlassian') || service === 'Jira') {
+    return <JiraIcon size={size} />
   }
 
   return null
@@ -316,6 +507,26 @@ export function getServiceIconFromLabel(label: string, systemType: string): Reac
       if (label.includes(key) || label.includes(key.replace('Azure ', ''))) return <Icon size={22} />
     }
   }
+  const powerMatch = matchIconByLabel(label, POWER_PLATFORM_ICON_MAP)
+  if (powerMatch) return powerMatch({ size: 22 })
+  if (systemType === 'powerplatform') return <PowerPlatformIcon size={22} />
   if (awsMatch) return awsMatch({ size: 22 })
+  if (label.toLowerCase().includes('jira')) return <JiraIcon size={22} />
+  if (label.toLowerCase().includes('azure devops') || label.toLowerCase().includes('ado')) {
+    return <AzureDevOpsIcon size={22} />
+  }
+  if (label.toLowerCase().includes('power virtual')) return <CopilotStudioIcon size={22} />
+  return null
+}
+
+function matchIconByLabel(
+  label: string,
+  map: Record<string, (props: IconProps) => ReactNode>,
+): ((props: IconProps) => ReactNode) | null {
+  const lower = label.toLowerCase()
+  const keys = Object.keys(map).sort((a, b) => b.length - a.length)
+  for (const key of keys) {
+    if (lower.includes(key.toLowerCase())) return map[key]
+  }
   return null
 }

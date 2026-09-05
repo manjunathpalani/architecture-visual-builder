@@ -1,12 +1,15 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react'
 import {
   Background,
+  ConnectionMode,
   Controls,
   MiniMap,
   ReactFlow,
   addEdge,
+  reconnectEdge,
   useEdgesState,
   useNodesState,
+  useNodesInitialized,
   useReactFlow,
   useViewport,
   type Connection,
@@ -72,6 +75,7 @@ import {
   type ArchitectureStateView,
 } from '../utils/architectureState'
 import { loadCanvasSideCollapsed, saveCanvasSideCollapsed } from '../utils/canvasDocks'
+import { EdgeEditContext } from './edges/edgeEdit'
 
 const nodeTypes = {
   integration: IntegrationNode,
@@ -208,8 +212,10 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   onOpenAi,
 }, ref) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
-  const { screenToFlowPosition, getNode, getNodes, setCenter, setNodes: setFlowNodes } = useReactFlow()
+  const { screenToFlowPosition, getNode, getNodes, setCenter, setNodes: setFlowNodes, fitView } = useReactFlow()
   const viewport = useViewport()
+  const nodesInitialized = useNodesInitialized()
+  const didFitRef = useRef(false)
 
   const diagramView = getDiagramView(document, diagramPath)
   const drawings = diagramView.drawings
@@ -390,6 +396,15 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   useEffect(() => {
     applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true)
   }, [applyFlowFocus, flowStyle.colorBy, flowStyle.endToEnd])
+
+  useEffect(() => {
+    if (!nodesInitialized || nodes.length === 0 || didFitRef.current) return
+    didFitRef.current = true
+    const frame = window.requestAnimationFrame(() => {
+      fitView({ padding: 0.2, duration: 0 })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [fitView, nodesInitialized, nodes.length])
 
   const saveDrawings = useCallback(
     (next: DrawingElement[]) => {
@@ -642,6 +657,21 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     [onNodesChange, setNodes, syncDocument, edges],
   )
 
+  const updateEdgeGeometry = useCallback(
+    (edgeId: string, patch: Partial<IntegrationEdgeData>) => {
+      setEdges((eds) => {
+        const updated = eds.map((edge) =>
+          edge.id === edgeId
+            ? { ...edge, data: { ...(edge.data as IntegrationEdgeData), ...patch } }
+            : edge,
+        )
+        syncDocument(nodesRef.current, updated)
+        return updated
+      })
+    },
+    [setEdges, syncDocument],
+  )
+
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
       if (isDrawMode) return
@@ -649,6 +679,8 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         id: generateId('int'),
         source: connection.source!,
         target: connection.target!,
+        sourceHandle: connection.sourceHandle ?? undefined,
+        targetHandle: connection.targetHandle ?? undefined,
         type: 'integration',
         data: {
           label: 'New Integration',
@@ -657,15 +689,29 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           frequency: 'real-time',
           dataFormat: 'JSON',
           description: '',
+          routing: 'bezier',
+          waypoints: [],
         },
       }
       setEdges((eds) => {
         const updated = addEdge(newEdge, eds)
-        syncDocument(nodes, updated)
+        syncDocument(nodesRef.current, updated)
         return updated
       })
     },
-    [isDrawMode, nodes, setEdges, syncDocument],
+    [isDrawMode, setEdges, syncDocument],
+  )
+
+  const onReconnect = useCallback(
+    (oldEdge: Edge<IntegrationEdgeData>, newConnection: Connection) => {
+      if (isDrawMode) return
+      setEdges((eds) => {
+        const updated = reconnectEdge<Edge<IntegrationEdgeData>>(oldEdge, newConnection, eds)
+        syncDocument(nodesRef.current, updated)
+        return updated
+      })
+    },
+    [isDrawMode, setEdges, syncDocument],
   )
 
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -818,6 +864,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   return (
     <div className="canvas-shell">
     <div className="canvas-wrapper" ref={reactFlowWrapper}>
+      <EdgeEditContext.Provider value={{ updateEdgeGeometry }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -826,6 +873,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           onEdgesChange(changes)
         }}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeDragStop={onNodeDragStop}
@@ -837,11 +885,20 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         nodesDraggable={!isDrawMode}
         nodesConnectable={!isDrawMode}
         elementsSelectable={!isDrawMode}
+        edgesReconnectable={!isDrawMode}
+        reconnectRadius={18}
+        connectionMode={ConnectionMode.Loose}
         panOnDrag={!isDrawMode}
         fitView
+        fitViewOptions={{ padding: 0.2 }}
+        minZoom={0.15}
+        maxZoom={2}
+        onInit={(instance) => {
+          instance.fitView({ padding: 0.2, duration: 0 })
+        }}
         snapToGrid={!isDrawMode}
         snapGrid={[16, 16]}
-        defaultEdgeOptions={{ type: 'integration' }}
+        defaultEdgeOptions={{ type: 'integration', reconnectable: true }}
         connectionLineStyle={{ stroke: '#6366f1', strokeWidth: 2 }}
         deleteKeyCode={isDrawMode ? null : ['Backspace', 'Delete']}
         elevateNodesOnSelect={false}
@@ -859,6 +916,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           maskColor="rgba(15, 23, 42, 0.08)"
         />
       </ReactFlow>
+      </EdgeEditContext.Provider>
 
       <div
         className={`drawing-overlay ${isDrawMode ? 'drawing-active' : ''}`}
@@ -984,7 +1042,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
             : diagramPath.length === 0
               ? 'Select a box or connector to highlight the end-to-end integration flow'
               : 'Select a box to highlight the end-to-end flow · Double-click to drill in'}
-        {!isDrawMode && !flowFocusId && ' · Drag corners to resize · Drag ports to link'}
+        {!isDrawMode && !flowFocusId && ' · Drag corners to resize · Drag ports to link · Drag connector ends to move them'}
       </div>
     </div>
 

@@ -8,9 +8,16 @@ export interface AzureDevOpsCredentials {
   token: string
 }
 
+export interface JiraCredentials {
+  site: string
+  email: string
+  token: string
+}
+
 interface StoredCredentials {
   github?: GitHubCredentials
   azure?: AzureDevOpsCredentials
+  jira?: JiraCredentials
 }
 
 const STORAGE_KEY = 'architecture-visual-builder-git'
@@ -57,4 +64,36 @@ export function isGitHubConnected(): boolean {
 export function isAzureDevOpsConnected(): boolean {
   const azure = getAzureDevOpsCredentials()
   return Boolean(azure?.token && azure?.organization)
+}
+
+export function normalizeJiraSite(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/.*$/, '')
+    .replace(/\.atlassian\.net$/i, '')
+}
+
+export function getJiraCredentials(): JiraCredentials | null {
+  return load().jira ?? null
+}
+
+export function setJiraCredentials(creds: JiraCredentials | null) {
+  const data = load()
+  if (creds) {
+    data.jira = {
+      site: normalizeJiraSite(creds.site),
+      email: creds.email.trim(),
+      token: creds.token.trim(),
+    }
+  } else {
+    delete data.jira
+  }
+  save(data)
+}
+
+export function isJiraConnected(): boolean {
+  const jira = getJiraCredentials()
+  return Boolean(jira?.token && jira?.email && jira?.site)
 }

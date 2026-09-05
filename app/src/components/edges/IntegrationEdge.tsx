@@ -1,12 +1,16 @@
 import {
   BaseEdge,
   EdgeLabelRenderer,
-  getBezierPath,
+  useReactFlow,
   type EdgeProps,
 } from '@xyflow/react'
+import { useEffect, useRef } from 'react'
+import type { Position } from '../../types'
 import type { EdgeFocusRelation, IntegrationEdgeData } from '../../utils/jsonIO'
 import { DIRECTION_COLORS, resolveEdgeColor } from '../../utils/flowTrace'
 import { CHANGE_STATUS_COLORS, parseChangeStatus } from '../../utils/architectureState'
+import { buildEdgePath, segmentMidpoints } from '../../utils/edgeRouting'
+import { useEdgeEdit } from './edgeEdit'
 
 const FOCUS_COLORS: Record<'out' | 'in', string> = {
   out: '#10b981',
@@ -36,12 +40,42 @@ export function IntegrationEdge({
   selected,
 }: EdgeProps) {
   const edgeData = data as IntegrationEdgeData | undefined
-  const [edgePath, labelX, labelY] = getBezierPath({
+  const { screenToFlowPosition } = useReactFlow()
+  const { updateEdgeGeometry } = useEdgeEdit()
+  const dragRef = useRef<{ index: number; points: Position[] } | null>(null)
+  const geometryRef = useRef({ id, updateEdgeGeometry, screenToFlowPosition })
+  geometryRef.current = { id, updateEdgeGeometry, screenToFlowPosition }
+
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      const drag = dragRef.current
+      if (!drag) return
+      const { screenToFlowPosition: toFlow, id: edgeId, updateEdgeGeometry: update } = geometryRef.current
+      const point = toFlow({ x: event.clientX, y: event.clientY })
+      const next = drag.points.map((p, i) => (i === drag.index ? point : p))
+      update(edgeId, { waypoints: next })
+      dragRef.current = { ...drag, points: next }
+    }
+    const onUp = () => {
+      dragRef.current = null
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [])
+
+  const waypoints = edgeData?.waypoints ?? []
+  const { path: edgePath, labelX, labelY, points } = buildEdgePath({
+    routing: edgeData?.routing,
+    waypoints,
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
+    sourcePosition,
     targetPosition,
   })
 
@@ -86,6 +120,31 @@ export function IntegrationEdge({
   const showReverseParticle =
     !isDimmed && (focusRelation === 'in' || isBidirectional)
 
+  const beginWaypointDrag = (event: React.PointerEvent, index: number, nextPoints: Position[]) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    dragRef.current = { index, points: nextPoints }
+  }
+
+  const addWaypointAt = (event: React.PointerEvent, insertAt: number, seed: Position) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const next = [...waypoints]
+    next.splice(insertAt, 0, seed)
+    updateEdgeGeometry(id, { waypoints: next })
+    dragRef.current = { index: insertAt, points: next }
+  }
+
+  const removeWaypoint = (event: React.MouseEvent, index: number) => {
+    event.preventDefault()
+    event.stopPropagation()
+    updateEdgeGeometry(id, { waypoints: waypoints.filter((_, i) => i !== index) })
+  }
+
+  const mids = selected ? segmentMidpoints(points) : []
+
   return (
     <>
       <defs>
@@ -127,6 +186,7 @@ export function IntegrationEdge({
         path={edgePath}
         markerEnd={markerEnd}
         markerStart={markerStart}
+        interactionWidth={24}
         style={{
           stroke: color,
           strokeWidth,
@@ -216,6 +276,34 @@ export function IntegrationEdge({
             <span className="edge-protocol">{edgeData.protocol}</span>
           )}
         </div>
+
+        {selected &&
+          waypoints.map((wp, index) => (
+            <div
+              key={`wp-${index}`}
+              className="edge-waypoint nodrag nopan"
+              title="Drag to bend · double-click to remove"
+              style={{
+                transform: `translate(-50%, -50%) translate(${wp.x}px, ${wp.y}px)`,
+                background: color,
+              }}
+              onPointerDown={(event) => beginWaypointDrag(event, index, waypoints)}
+              onDoubleClick={(event) => removeWaypoint(event, index)}
+            />
+          ))}
+
+        {selected &&
+          mids.map((mid, index) => (
+            <div
+              key={`mid-${index}`}
+              className="edge-waypoint-add nodrag nopan"
+              title="Drag to add a bend"
+              style={{
+                transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)`,
+              }}
+              onPointerDown={(event) => addWaypointAt(event, index, mid)}
+            />
+          ))}
       </EdgeLabelRenderer>
     </>
   )
