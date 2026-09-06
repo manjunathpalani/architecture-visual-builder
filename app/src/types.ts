@@ -64,7 +64,19 @@ export const DRAWING_SHAPE_LABELS: Record<DrawingShapeKind, string> = {
   parallelogram: 'Parallelogram',
 }
 
-export type IntegrationDirection = 'inbound' | 'outbound' | 'bidirectional'
+export type IntegrationDirection = 'inbound' | 'outbound' | 'bidirectional' | 'none'
+
+export const ARROW_DIRECTION_OPTIONS: Array<{
+  id: IntegrationDirection
+  label: string
+  hint: string
+  symbol: string
+}> = [
+  { id: 'outbound', label: 'To target', hint: 'Arrow points at the destination', symbol: 'A → B' },
+  { id: 'inbound', label: 'To source', hint: 'Arrow points at the source', symbol: 'A ← B' },
+  { id: 'bidirectional', label: 'Both ways', hint: 'Arrows on both ends', symbol: 'A ↔ B' },
+  { id: 'none', label: 'No arrow', hint: 'Plain line with no arrowhead', symbol: 'A — B' },
+]
 
 export type IntegrationProtocol =
   | 'REST API'
@@ -113,6 +125,11 @@ export interface SystemProperties {
   owner?: string
   description?: string
   color?: string
+  fontSize?: string
+  fontFamily?: string
+  fontWeight?: string
+  fontStyle?: string
+  textColor?: string
   width?: string
   height?: string
   gitAzureProject?: string
@@ -235,6 +252,7 @@ export const SYSTEM_TYPE_CONFIG: Record<
 
 export const PALETTE_CATEGORY_ORDER = [
   'SaaS',
+  'Microsoft 365',
   'AWS',
   'Azure',
   'Power Platform',
@@ -251,6 +269,8 @@ export const PALETTE_CATEGORY_ORDER = [
 export const PALETTE_ITEMS: PaletteItem[] = [
   { type: 'saas', label: 'SaaS Platform', category: 'SaaS' },
   { type: 'saas', label: 'Salesforce', category: 'SaaS', defaultProperties: { vendor: 'Salesforce' } },
+  { type: 'saas', label: 'Dynamics 365', category: 'SaaS', defaultProperties: { vendor: 'Microsoft', service: 'Dynamics 365' } },
+  { type: 'saas', label: 'Dataverse', category: 'SaaS', defaultProperties: { vendor: 'Microsoft', service: 'Dataverse' } },
   { type: 'saas', label: 'Workday', category: 'SaaS', defaultProperties: { vendor: 'Workday' } },
   { type: 'saas', label: 'ServiceNow', category: 'SaaS', defaultProperties: { vendor: 'ServiceNow' } },
   { type: 'saas', label: 'Jira', category: 'SaaS', defaultProperties: { vendor: 'Atlassian', service: 'Jira' } },
@@ -275,23 +295,6 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { type: 'aws', label: 'NAT Gateway', category: 'AWS', defaultProperties: { vendor: 'AWS', service: 'NAT Gateway' } },
   { type: 'aws', label: 'Amazon EKS', category: 'AWS', defaultProperties: { vendor: 'AWS', service: 'EKS' } },
   { type: 'aws', label: 'AWS IAM', category: 'AWS', defaultProperties: { vendor: 'AWS', service: 'IAM' } },
-
-  { type: 'azure', label: 'Azure Functions', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Functions' } },
-  { type: 'azure', label: 'Azure Blob Storage', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Blob Storage' } },
-  { type: 'azure', label: 'Azure Virtual Machines', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Virtual Machines' } },
-  { type: 'azure', label: 'Azure API Management', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'API Management', componentType: 'api' } },
-  { type: 'azure', label: 'Azure Service Bus', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Service Bus' } },
-  { type: 'azure', label: 'Azure Event Hubs', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Event Hubs' } },
-  { type: 'azure', label: 'Azure Logic Apps', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Logic Apps' } },
-  { type: 'azure', label: 'Azure SQL Database', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'SQL Database' } },
-  { type: 'azure', label: 'Azure Key Vault', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Key Vault' } },
-  { type: 'azure', label: 'Microsoft Entra ID', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Entra ID' } },
-  { type: 'azure', label: 'Azure Data Factory', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Data Factory' } },
-  { type: 'azure', label: 'Azure Kubernetes (AKS)', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'AKS' } },
-  { type: 'azure', label: 'Azure Front Door', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Front Door' } },
-  { type: 'azure', label: 'Azure Firewall', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Firewall' } },
-  { type: 'azure', label: 'Application Gateway', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Application Gateway', componentType: 'api' } },
-  { type: 'azure', label: 'Azure Monitor', category: 'Azure', defaultProperties: { vendor: 'Microsoft Azure', service: 'Monitor' } },
 
   { type: 'powerplatform', label: 'Power Platform', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Platform', color: '#742774' } },
   { type: 'powerplatform', label: 'Power Apps', category: 'Power Platform', defaultProperties: { vendor: 'Microsoft Power Platform', service: 'Power Apps', color: '#742774' } },

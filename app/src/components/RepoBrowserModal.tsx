@@ -218,8 +218,8 @@ export function RepoBrowserModal({
   const pathParts = currentPath ? currentPath.split('/') : []
 
   return (
-    <div className="repo-browser-overlay">
-      <div className="repo-browser">
+    <div className="repo-browser-overlay" onClick={(event) => event.stopPropagation()}>
+      <div className="repo-browser" onClick={(event) => event.stopPropagation()}>
         <div className="repo-browser-header">
           <div>
             <h2>
@@ -227,7 +227,14 @@ export function RepoBrowserModal({
             </h2>
             <p>Select a repository, branch, and {mode === 'pull' ? 'JSON file' : 'folder'}</p>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose}><X size={18} /></button>
+          <div className="dialog-header-actions">
+            {mode === 'link' && (
+              <button type="button" className="btn-secondary" onClick={onClose}>
+                Back
+              </button>
+            )}
+            <button type="button" className="icon-btn" onClick={onClose}><X size={18} /></button>
+          </div>
         </div>
 
         <div className="repo-browser-providers">

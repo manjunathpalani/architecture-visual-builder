@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react'
 import type { ProjectTab } from '../types/project'
+import { EditableTabName } from './EditableTabName'
 
 interface ProjectTabsProps {
   tabs: ProjectTab[]
@@ -7,6 +8,7 @@ interface ProjectTabsProps {
   onSelectTab: (id: string) => void
   onCloseTab: (id: string) => void
   onNewTab: () => void
+  onRenameTab: (id: string, name: string) => void
 }
 
 export function ProjectTabs({
@@ -15,6 +17,7 @@ export function ProjectTabs({
   onSelectTab,
   onCloseTab,
   onNewTab,
+  onRenameTab,
 }: ProjectTabsProps) {
   return (
     <div className="project-tabs-bar">
@@ -34,16 +37,27 @@ export function ProjectTabs({
               tabIndex={0}
               aria-selected={isActive}
             >
-              <span className="project-tab-name" title={name}>
-                {name}
-              </span>
+              <EditableTabName
+                name={name}
+                className="project-tab-name"
+                onRename={(next) => onRenameTab(tab.id, next)}
+              />
               <span className="project-tab-stats">{stats}</span>
               {tabs.length > 1 && (
                 <button
                   type="button"
                   className="project-tab-close"
                   aria-label={`Close ${name}`}
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
                   onClick={(e) => {
+                    e.preventDefault()
                     e.stopPropagation()
                     onCloseTab(tab.id)
                   }}

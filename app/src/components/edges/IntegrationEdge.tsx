@@ -18,9 +18,10 @@ const FOCUS_COLORS: Record<'out' | 'in', string> = {
 }
 
 const DIRECTION_TEXT: Record<string, string> = {
-  inbound: 'inbound',
-  outbound: 'outbound',
-  bidirectional: 'bidirectional',
+  inbound: '← to source',
+  outbound: '→ to target',
+  bidirectional: '↔ both ways',
+  none: 'no arrow',
 }
 
 const FOCUS_LABEL: Record<'out' | 'in', string> = {
@@ -79,7 +80,7 @@ export function IntegrationEdge({
     targetPosition,
   })
 
-  const direction = edgeData?.direction ?? 'bidirectional'
+  const direction = edgeData?.direction ?? 'outbound'
   const label = edgeData?.label ?? 'Integration'
   const focusRelation: EdgeFocusRelation = edgeData?.focusRelation ?? 'idle'
   const isFocused = focusRelation === 'out' || focusRelation === 'in'
@@ -99,26 +100,23 @@ export function IntegrationEdge({
           : styledColor || DIRECTION_COLORS[direction] || '#6366f1'
   const dash = changeStatus === 'new' ? '7 4' : changeStatus === 'retired' ? '3 4' : undefined
 
-  const markerEnd =
-    direction === 'outbound' ||
-    direction === 'bidirectional' ||
-    direction === 'inbound' ||
-    isFocused
-      ? `url(#arrow-end-${id})`
-      : undefined
-  const markerStart =
-    direction === 'bidirectional' || focusRelation === 'in'
-      ? `url(#arrow-start-${id})`
-      : undefined
+  const showEndArrow = direction === 'outbound' || direction === 'bidirectional'
+  const showStartArrow = direction === 'inbound' || direction === 'bidirectional'
+  const markerEnd = showEndArrow ? `url(#arrow-end-${id})` : undefined
+  const markerStart = showStartArrow ? `url(#arrow-start-${id})` : undefined
 
-  const strokeWidth = isActive ? 3.5 : isDimmed ? 1.25 : 2.25
-  const opacity = isDimmed ? 0.16 : 1
+  const strokeWidth = isActive ? 3.5 : isDimmed ? 1.25 : 2.75
+  const opacity = isDimmed ? 0.16 : 0.92
 
   const isBidirectional = direction === 'bidirectional'
   const showForwardParticle =
-    !isDimmed && (focusRelation === 'out' || focusRelation === 'idle' || selected || isBidirectional)
+    !isDimmed &&
+    direction !== 'none' &&
+    (direction === 'outbound' || isBidirectional || focusRelation === 'out')
   const showReverseParticle =
-    !isDimmed && (focusRelation === 'in' || isBidirectional)
+    !isDimmed &&
+    direction !== 'none' &&
+    (direction === 'inbound' || isBidirectional || focusRelation === 'in')
 
   const beginWaypointDrag = (event: React.PointerEvent, index: number, nextPoints: Position[]) => {
     if (event.button !== 0) return
@@ -153,22 +151,24 @@ export function IntegrationEdge({
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth={isActive ? 10 : 8}
-          markerHeight={isActive ? 10 : 8}
-          orient="auto-start-reverse"
+          markerWidth={isActive ? 14 : 13}
+          markerHeight={isActive ? 14 : 13}
+          markerUnits="userSpaceOnUse"
+          orient="auto"
         >
           <path d="M 1 1 L 9 5 L 1 9 Z" fill={color} />
         </marker>
         <marker
           id={`arrow-start-${id}`}
           viewBox="0 0 10 10"
-          refX="1"
+          refX="9"
           refY="5"
-          markerWidth={isActive ? 10 : 8}
-          markerHeight={isActive ? 10 : 8}
-          orient="auto"
+          markerWidth={isActive ? 14 : 13}
+          markerHeight={isActive ? 14 : 13}
+          markerUnits="userSpaceOnUse"
+          orient="auto-start-reverse"
         >
-          <path d="M 9 1 L 1 5 L 9 9 Z" fill={color} />
+          <path d="M 1 1 L 9 5 L 1 9 Z" fill={color} />
         </marker>
         {isFocused && (
           <filter id={`glow-${id}`} x="-40%" y="-40%" width="180%" height="180%">
@@ -200,7 +200,7 @@ export function IntegrationEdge({
 
       {showForwardParticle && (
         <circle
-          r={isFocused ? 5 : 3.5}
+          r={isFocused ? 5 : 4}
           fill={color}
           className={`flow-particle ${isFocused ? 'flow-particle-active' : ''}`}
           opacity={isFocused ? 1 : 0.85}
@@ -246,6 +246,7 @@ export function IntegrationEdge({
       )}
 
       <EdgeLabelRenderer>
+        {isActive && (
         <div
           className={`edge-label direction-${direction} focus-${focusRelation} ${selected ? 'selected' : ''} ${isFocused ? 'flow-highlighted' : ''} ${isDimmed ? 'dimmed' : ''}`}
           style={{
@@ -267,6 +268,29 @@ export function IntegrationEdge({
                 : 'from start systems'
               : (DIRECTION_TEXT[direction] ?? direction)}
           </span>
+          {selected && (
+            <button
+              type="button"
+              className="edge-arrow-flip nodrag nopan"
+              title="Change arrow direction"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                const order = ['outbound', 'inbound', 'bidirectional', 'none'] as const
+                const index = order.indexOf(direction as (typeof order)[number])
+                const next = order[(index + 1) % order.length]
+                updateEdgeGeometry(id, { direction: next })
+              }}
+            >
+              {direction === 'inbound'
+                ? '← Flip arrow'
+                : direction === 'bidirectional'
+                  ? '↔ Flip arrow'
+                  : direction === 'none'
+                    ? '— Flip arrow'
+                    : '→ Flip arrow'}
+            </button>
+          )}
           {changeStatus !== 'unchanged' && !isDimmed && (
             <span className={`edge-change-flag change-${changeStatus}`}>
               {changeStatus === 'new' ? 'future' : changeStatus === 'modified' ? 'changed' : 'retired'}
@@ -276,6 +300,7 @@ export function IntegrationEdge({
             <span className="edge-protocol">{edgeData.protocol}</span>
           )}
         </div>
+        )}
 
         {selected &&
           waypoints.map((wp, index) => (

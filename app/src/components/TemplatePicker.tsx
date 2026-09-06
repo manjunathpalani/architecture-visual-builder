@@ -37,6 +37,7 @@ interface TemplatePickerProps {
 const TEMPLATE_ICONS: Record<ArchitectureTemplateId, LucideIcon> = {
   blank: Square,
   enterprise: Building2,
+  'business-context': Building2,
   solution: Layers,
   contextual: Network,
   functional: Workflow,

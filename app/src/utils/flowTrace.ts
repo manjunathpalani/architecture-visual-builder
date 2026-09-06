@@ -36,30 +36,43 @@ export const DIRECTION_COLORS: Record<string, string> = {
   inbound: '#0ea5e9',
   outbound: '#6366f1',
   bidirectional: '#8b5cf6',
+  none: '#64748b',
 }
 
-const STORAGE_KEY = 'architecture-visual-builder-flow-style'
+const STORAGE_KEY = 'architecture-visual-builder-flow-style-v3'
+
+export type FlowScope = 'direct' | 'touches' | 'chain'
 
 export interface FlowStyle {
   colorBy: FlowColorBy
+  scope: FlowScope
+  /** @deprecated derived from scope === 'chain' */
   endToEnd: boolean
 }
+
+const SCOPES: FlowScope[] = ['direct', 'touches', 'chain']
 
 export function loadFlowStyle(): FlowStyle {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { colorBy: 'direction', endToEnd: true }
-    const parsed = JSON.parse(raw) as Partial<FlowStyle>
+    if (!raw) return { colorBy: 'direction', scope: 'direct', endToEnd: false }
+    const parsed = JSON.parse(raw) as Partial<FlowStyle> & { endToEnd?: boolean }
     const colorBy = parsed.colorBy
+    const scope: FlowScope = SCOPES.includes(parsed.scope as FlowScope)
+      ? (parsed.scope as FlowScope)
+      : parsed.endToEnd
+        ? 'chain'
+        : 'direct'
     return {
       colorBy:
         colorBy === 'protocol' || colorBy === 'custom' || colorBy === 'path' || colorBy === 'direction'
           ? colorBy
           : 'direction',
-      endToEnd: parsed.endToEnd !== false,
+      scope,
+      endToEnd: scope === 'chain',
     }
   } catch {
-    return { colorBy: 'direction', endToEnd: true }
+    return { colorBy: 'direction', scope: 'direct', endToEnd: false }
   }
 }
 
@@ -84,6 +97,8 @@ export interface FlowTrace {
   edgeHop: Map<string, 'out' | 'in'>
   edgePathColor: Map<string, string>
   nodeIds: Set<string>
+  /** Nodes that share an integration line with the selection (1 hop). */
+  directNodeIds: Set<string>
 }
 
 type FlowEdge = {
@@ -116,198 +131,191 @@ export function traceEndToEnd(
   focusNodeId: string | null,
   focusEdgeId: string | null,
 ): FlowTrace {
+  return traceSelectionFlow(edges, nodeLabels, focusNodeId, focusEdgeId, true)
+}
+
+/** Highlight only nodes/edges actually linked to the selection. */
+export function traceSelectionFlow(
+  edges: Edge<IntegrationEdgeData>[],
+  nodeLabels: Map<string, string>,
+  focusNodeId: string | null,
+  focusEdgeId: string | null,
+  endToEnd = false,
+): FlowTrace {
   const empty: FlowTrace = {
     paths: [],
     edgeHop: new Map(),
     edgePathColor: new Map(),
     nodeIds: new Set(),
+    directNodeIds: new Set(),
   }
   if (!focusNodeId && !focusEdgeId) return empty
 
-  const flowEdges: FlowEdge[] = edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    direction: edge.data?.direction ?? 'outbound',
-  }))
+  const flowEdges: FlowEdge[] = edges
+    .filter((edge) => edge.source && edge.target && nodeLabels.has(edge.source) && nodeLabels.has(edge.target))
+    .map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      direction: edge.data?.direction ?? 'outbound',
+    }))
 
-  const { outgoing, incoming } = buildAdjacency(flowEdges)
-  const seed = focusNodeId ?? edgeEndpoint(flowEdges, focusEdgeId)
+  const focusEdge = focusEdgeId ? flowEdges.find((edge) => edge.id === focusEdgeId) ?? null : null
+  const seed = focusNodeId ?? focusEdge?.source ?? null
   if (!seed) return empty
 
-  const downstreamNodes = walk(seed, outgoing)
-  const upstreamNodes = walk(seed, incoming)
-  const sources = [...upstreamNodes].filter((id) => (incoming.get(id)?.length ?? 0) === 0 || id === seed)
-  const sinks = [...downstreamNodes].filter((id) => (outgoing.get(id)?.length ?? 0) === 0 || id === seed)
-  const startNodes = sources.length > 0 ? sources : [seed]
-  const endNodes = sinks.length > 0 ? sinks : [seed]
+  const incident = focusNodeId
+    ? flowEdges.filter((edge) => edge.source === focusNodeId || edge.target === focusNodeId)
+    : focusEdge
+      ? [focusEdge]
+      : []
 
-  const rawPaths: string[][] = []
-  for (const start of startNodes) {
-    enumeratePaths(start, endNodes, outgoing, focusNodeId, focusEdgeId, rawPaths)
-    if (rawPaths.length >= MAX_PATHS) break
-  }
-
-  if (rawPaths.length === 0 && focusNodeId) {
-    const local: string[][] = []
-    for (const step of outgoing.get(focusNodeId) ?? []) {
-      local.push([focusNodeId, step.nodeId])
-    }
-    for (const step of incoming.get(focusNodeId) ?? []) {
-      local.push([step.nodeId, focusNodeId])
-    }
-    rawPaths.push(...local)
-  }
-
-  const unique = dedupePaths(rawPaths)
-  const paths: FlowPath[] = unique.map((nodeIds, index) => {
-    const edgeIds = pathEdgeIds(nodeIds, outgoing, incoming)
-    return {
-      id: `path-${index + 1}`,
-      nodeIds,
-      edgeIds,
-      labels: nodeIds.map((id) => nodeLabels.get(id) ?? id),
-      color: PATH_COLORS[index % PATH_COLORS.length],
-    }
-  })
-
+  const directNodeIds = new Set<string>()
+  const nodeIds = new Set<string>()
   const edgeHop = new Map<string, 'out' | 'in'>()
   const edgePathColor = new Map<string, string>()
-  const nodeIds = new Set<string>()
+  const paths: FlowPath[] = []
 
-  for (const id of downstreamNodes) {
-    for (const step of outgoing.get(id) ?? []) {
-      if (downstreamNodes.has(step.nodeId) || id === seed) edgeHop.set(step.edgeId, 'out')
-    }
-  }
-  for (const id of upstreamNodes) {
-    for (const step of incoming.get(id) ?? []) {
-      if (upstreamNodes.has(step.nodeId) || id === seed) {
-        if (!edgeHop.has(step.edgeId)) edgeHop.set(step.edgeId, 'in')
-      }
-    }
+  if (focusNodeId) nodeIds.add(focusNodeId)
+  if (focusEdge) {
+    nodeIds.add(focusEdge.source)
+    nodeIds.add(focusEdge.target)
+    directNodeIds.add(focusEdge.source)
+    directNodeIds.add(focusEdge.target)
   }
 
-  for (const path of paths) {
-    path.nodeIds.forEach((id) => nodeIds.add(id))
-    path.edgeIds.forEach((id) => {
-      if (!edgePathColor.has(id)) edgePathColor.set(id, path.color)
-      if (!edgeHop.has(id)) edgeHop.set(id, 'out')
+  incident.forEach((edge, index) => {
+    const other = edge.source === seed ? edge.target : edge.source
+    directNodeIds.add(other)
+    nodeIds.add(other)
+    const hop: 'out' | 'in' = edge.source === seed ? 'out' : 'in'
+    edgeHop.set(edge.id, hop)
+    const color = PATH_COLORS[index % PATH_COLORS.length]
+    edgePathColor.set(edge.id, color)
+    paths.push({
+      id: `link-${edge.id}`,
+      nodeIds: [seed, other],
+      edgeIds: [edge.id],
+      labels: [nodeLabels.get(seed) ?? seed, nodeLabels.get(other) ?? other],
+      color,
+    })
+  })
+
+  if (endToEnd) {
+    const down = walkDirected(seed, flowEdges, 'down')
+    const up = walkDirected(seed, flowEdges, 'up')
+    down.nodeIds.forEach((id) => nodeIds.add(id))
+    up.nodeIds.forEach((id) => nodeIds.add(id))
+    down.steps.forEach((step) => {
+      if (!edgeHop.has(step.edgeId)) edgeHop.set(step.edgeId, 'out')
+    })
+    up.steps.forEach((step) => {
+      if (!edgeHop.has(step.edgeId)) edgeHop.set(step.edgeId, 'in')
+    })
+    const chainPaths = collectDirectedPaths(seed, flowEdges, nodeLabels)
+    chainPaths.forEach((path, index) => {
+      if (path.nodeIds.length < 3) return
+      const color = PATH_COLORS[(paths.length + index) % PATH_COLORS.length]
+      path.edgeIds.forEach((id) => {
+        if (!edgePathColor.has(id)) edgePathColor.set(id, color)
+      })
+      paths.push({ ...path, color })
     })
   }
 
-  if (focusNodeId) nodeIds.add(focusNodeId)
-
-  return { paths, edgeHop, edgePathColor, nodeIds }
+  return { paths: paths.slice(0, MAX_PATHS), edgeHop, edgePathColor, nodeIds, directNodeIds }
 }
 
-function edgeEndpoint(edges: FlowEdge[], edgeId: string | null): string | null {
-  if (!edgeId) return null
-  const edge = edges.find((e) => e.id === edgeId)
-  return edge?.source ?? null
-}
-
-function buildAdjacency(edges: FlowEdge[]) {
-  const outgoing = new Map<string, Array<{ nodeId: string; edgeId: string }>>()
-  const incoming = new Map<string, Array<{ nodeId: string; edgeId: string }>>()
-
-  const add = (
-    map: Map<string, Array<{ nodeId: string; edgeId: string }>>,
-    from: string,
-    to: string,
-    edgeId: string,
-  ) => {
-    const list = map.get(from) ?? []
-    list.push({ nodeId: to, edgeId })
-    map.set(from, list)
+function directedHops(edge: FlowEdge): Array<{ from: string; to: string }> {
+  if (edge.direction === 'inbound') return [{ from: edge.target, to: edge.source }]
+  if (edge.direction === 'bidirectional' || edge.direction === 'none') {
+    return [
+      { from: edge.source, to: edge.target },
+      { from: edge.target, to: edge.source },
+    ]
   }
-
-  for (const edge of edges) {
-    const forward = edge.direction !== 'inbound'
-    const reverse = edge.direction === 'inbound' || edge.direction === 'bidirectional'
-    if (forward) {
-      add(outgoing, edge.source, edge.target, edge.id)
-      add(incoming, edge.target, edge.source, edge.id)
-    }
-    if (reverse) {
-      add(outgoing, edge.target, edge.source, edge.id)
-      add(incoming, edge.source, edge.target, edge.id)
-    }
-  }
-
-  return { outgoing, incoming }
+  return [{ from: edge.source, to: edge.target }]
 }
 
-function walk(
+function walkDirected(
   start: string,
-  adj: Map<string, Array<{ nodeId: string; edgeId: string }>>,
-): Set<string> {
-  const seen = new Set<string>([start])
+  edges: FlowEdge[],
+  toward: 'down' | 'up',
+): { nodeIds: Set<string>; steps: Array<{ edgeId: string; from: string; to: string }> } {
+  const nodeIds = new Set<string>([start])
+  const steps: Array<{ edgeId: string; from: string; to: string }> = []
+  const used = new Set<string>()
   const queue = [start]
   while (queue.length) {
     const current = queue.shift()!
-    for (const step of adj.get(current) ?? []) {
-      if (seen.has(step.nodeId)) continue
-      seen.add(step.nodeId)
-      queue.push(step.nodeId)
+    for (const edge of edges) {
+      for (const hop of directedHops(edge)) {
+        const from = toward === 'down' ? hop.from : hop.to
+        const to = toward === 'down' ? hop.to : hop.from
+        if (from !== current) continue
+        const key = `${edge.id}:${from}:${to}`
+        if (used.has(key)) continue
+        used.add(key)
+        steps.push({ edgeId: edge.id, from, to })
+        if (!nodeIds.has(to)) {
+          nodeIds.add(to)
+          queue.push(to)
+        }
+      }
     }
   }
-  return seen
+  return { nodeIds, steps }
 }
 
-function enumeratePaths(
+function collectDirectedPaths(
   start: string,
-  ends: string[],
-  outgoing: Map<string, Array<{ nodeId: string; edgeId: string }>>,
-  mustNode: string | null,
-  mustEdge: string | null,
-  out: string[][],
-) {
-  const endSet = new Set(ends)
-  const visit = (node: string, trail: string[], usedEdges: Set<string>) => {
-    if (out.length >= MAX_PATHS || trail.length > MAX_DEPTH) return
-    if (endSet.has(node) && trail.length > 1) {
-      const includeNode = !mustNode || trail.includes(mustNode)
-      const includeEdge = !mustEdge || usedEdges.has(mustEdge)
-      if (includeNode && includeEdge) out.push([...trail])
+  edges: FlowEdge[],
+  nodeLabels: Map<string, string>,
+): FlowPath[] {
+  const outgoing = new Map<string, Array<{ nodeId: string; edgeId: string }>>()
+  for (const edge of edges) {
+    for (const hop of directedHops(edge)) {
+      const list = outgoing.get(hop.from) ?? []
+      list.push({ nodeId: hop.to, edgeId: edge.id })
+      outgoing.set(hop.from, list)
     }
-    for (const step of outgoing.get(node) ?? []) {
-      if (trail.includes(step.nodeId) || usedEdges.has(step.edgeId)) continue
-      usedEdges.add(step.edgeId)
+  }
+  const found: FlowPath[] = []
+  const visit = (node: string, trail: string[], edgeIds: string[]) => {
+    if (found.length >= MAX_PATHS || trail.length > MAX_DEPTH) return
+    const next = outgoing.get(node) ?? []
+    if (next.length === 0) {
+      if (trail.length > 2) {
+        found.push({
+          id: `path-${found.length + 1}`,
+          nodeIds: [...trail],
+          edgeIds: [...edgeIds],
+          labels: trail.map((id) => nodeLabels.get(id) ?? id),
+          color: PATH_COLORS[found.length % PATH_COLORS.length],
+        })
+      }
+      return
+    }
+    let branched = false
+    for (const step of next) {
+      if (trail.includes(step.nodeId) || edgeIds.includes(step.edgeId)) continue
+      branched = true
       trail.push(step.nodeId)
-      visit(step.nodeId, trail, usedEdges)
+      edgeIds.push(step.edgeId)
+      visit(step.nodeId, trail, edgeIds)
+      edgeIds.pop()
       trail.pop()
-      usedEdges.delete(step.edgeId)
+    }
+    if (!branched && trail.length > 2) {
+      found.push({
+        id: `path-${found.length + 1}`,
+        nodeIds: [...trail],
+        edgeIds: [...edgeIds],
+        labels: trail.map((id) => nodeLabels.get(id) ?? id),
+        color: PATH_COLORS[found.length % PATH_COLORS.length],
+      })
     }
   }
-  visit(start, [start], new Set())
-}
-
-function dedupePaths(paths: string[][]): string[][] {
-  const seen = new Set<string>()
-  const unique: string[][] = []
-  for (const path of paths) {
-    const key = path.join('>')
-    if (seen.has(key)) continue
-    seen.add(key)
-    unique.push(path)
-  }
-  return unique
-}
-
-function pathEdgeIds(
-  nodeIds: string[],
-  outgoing: Map<string, Array<{ nodeId: string; edgeId: string }>>,
-  incoming: Map<string, Array<{ nodeId: string; edgeId: string }>>,
-): string[] {
-  const ids: string[] = []
-  for (let i = 0; i < nodeIds.length - 1; i += 1) {
-    const from = nodeIds[i]
-    const to = nodeIds[i + 1]
-    const hit =
-      outgoing.get(from)?.find((step) => step.nodeId === to) ??
-      incoming.get(to)?.find((step) => step.nodeId === from)
-    if (hit) ids.push(hit.edgeId)
-  }
-  return ids
+  visit(start, [start], [])
+  return found
 }

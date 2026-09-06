@@ -1,11 +1,10 @@
-import { Layers, Scale, ZoomIn } from 'lucide-react'
+import { Database, Layers, PanelRight, PictureInPicture2, Scale, X, ZoomIn } from 'lucide-react'
 import type { Edge, Node } from '@xyflow/react'
 import type {
   ArchitectureDocument,
   DiagramShape,
   DrawingShapeKind,
   EdgeRouting,
-  IntegrationDirection,
   IntegrationFrequency,
   IntegrationProtocol,
   SystemType,
@@ -14,16 +13,18 @@ import {
   COLOR_PRESETS,
   DRAWING_SHAPE_KINDS,
   DRAWING_SHAPE_LABELS,
+  ARROW_DIRECTION_OPTIONS,
   EDGE_ROUTING_OPTIONS,
   SYSTEM_TYPE_CONFIG,
   parseEdgeRouting,
 } from '../types'
 import type { DiagramPath } from '../types/diagram'
-import { getNodeColor } from '../utils/nodeStyle'
+import { getNodeColor, parseNodeDisplay, sizeForNodeDisplay, type NodeDisplayStyle } from '../utils/nodeStyle'
 import type { IntegrationEdgeData, IntegrationNodeData } from '../utils/jsonIO'
 import {
   canDrillInto,
   findSystemAtPath,
+  getDiagramView,
   getSubDiagramStats,
   hasSubDiagram,
 } from '../utils/diagramNavigation'
@@ -38,6 +39,17 @@ import {
   parseChangeStatus,
   type ChangeStatus,
 } from '../utils/architectureState'
+import {
+  NODE_FONT_DEFAULT,
+  NODE_FONT_FAMILIES,
+  NODE_FONT_MAX,
+  NODE_FONT_MIN,
+  NODE_FONT_WEIGHTS,
+  parseNodeFontFamily,
+  parseNodeFontSize,
+  parseNodeFontStyle,
+  parseNodeFontWeight,
+} from '../utils/nodeFontSize'
 
 interface PropertiesPanelProps {
   selectedNode: Node<IntegrationNodeData> | null
@@ -50,10 +62,14 @@ interface PropertiesPanelProps {
   onDeleteEdge: (id: string) => void
   onDrillInto: (systemId: string, label: string) => void
   onAnalyzeCapability?: (label: string) => void
+  onReadSaasMetadata?: () => void
+  variant?: 'side' | 'flyout'
+  onDock?: () => void
+  onUndock?: () => void
+  onCloseFlyout?: () => void
 }
 
 const SYSTEM_TYPES = Object.keys(SYSTEM_TYPE_CONFIG) as SystemType[]
-const DIRECTIONS: IntegrationDirection[] = ['inbound', 'outbound', 'bidirectional']
 const PROTOCOLS: IntegrationProtocol[] = [
   'REST API', 'SOAP', 'GraphQL', 'SFTP', 'Kafka', 'MQTT',
   'Webhook', 'ODBC/JDBC', 'File Transfer', 'Custom',
@@ -77,8 +93,34 @@ export function PropertiesPanel({
   onDeleteEdge,
   onDrillInto,
   onAnalyzeCapability,
+  onReadSaasMetadata,
+  variant = 'side',
+  onDock,
+  onUndock,
+  onCloseFlyout,
 }: PropertiesPanelProps) {
+  const headerActions = (onDock || onUndock || onCloseFlyout) && (
+    <div className="properties-header-actions">
+      {onUndock && (
+        <button type="button" className="icon-btn" title="Show next to component" onClick={onUndock}>
+          <PictureInPicture2 size={16} />
+        </button>
+      )}
+      {onDock && (
+        <button type="button" className="icon-btn" title="Dock to side panel" onClick={onDock}>
+          <PanelRight size={16} />
+        </button>
+      )}
+      {onCloseFlyout && (
+        <button type="button" className="icon-btn" title="Close" onClick={onCloseFlyout} aria-label="Close properties">
+          <X size={16} />
+        </button>
+      )}
+    </div>
+  )
+
   if (!selectedNode && !selectedEdge) {
+    if (variant === 'flyout') return null
     return (
       <aside className="properties empty">
         <div className="panel-header">
@@ -93,7 +135,7 @@ export function PropertiesPanel({
   }
 
   if (selectedNode) {
-    const data = selectedNode.data
+    const data = liveNodeData(document, drillPath, selectedNode)
     const isDiagram = data.systemType === 'diagram'
     const isNote = data.systemType === 'note'
     const isGroup = data.systemType === 'group'
@@ -109,10 +151,13 @@ export function PropertiesPanel({
             : 'System Properties'
 
     return (
-      <aside className="properties">
+      <aside className={`properties ${variant === 'flyout' ? 'is-flyout' : ''}`}>
         <div className="panel-header">
-          <h2>{panelTitle}</h2>
-          <p>{data.label}</p>
+          <div>
+            <h2>{panelTitle}</h2>
+            <p>{data.label}</p>
+          </div>
+          {headerActions}
         </div>
         <div className="property-form">
           <label>
@@ -122,6 +167,179 @@ export function PropertiesPanel({
               onChange={(e) => onUpdateNode(selectedNode.id, { label: e.target.value })}
             />
           </label>
+
+          {!isNote && !isGroup && !isShape && (
+            <div className="node-display-section">
+              <span className="color-picker-label">Appearance</span>
+              <div className="node-display-toggle">
+                {([
+                  { id: 'box', label: 'Box', hint: 'Card with border and details' },
+                  { id: 'icon', label: 'Icon', hint: 'Icon and name only, no box' },
+                ] as Array<{ id: NodeDisplayStyle; label: string; hint: string }>).map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    title={option.hint}
+                    className={`font-size-preset ${parseNodeDisplay(data.properties) === option.id ? 'active' : ''}`}
+                    onClick={() =>
+                      onUpdateNode(selectedNode.id, {
+                        properties: {
+                          ...data.properties,
+                          display: option.id === 'box' ? undefined : option.id,
+                          ...sizeForNodeDisplay(option.id, data.properties),
+                        },
+                      })
+                    }
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="code-link-hint">
+                Icon shows just the component symbol and name. Switch back to Box for the full card.
+              </p>
+            </div>
+          )}
+
+          <div className="font-style-section">
+            <span className="color-picker-label">Text style</span>
+            <label>
+              Font
+              <select
+                value={parseNodeFontFamily(data.properties)}
+                onChange={(e) =>
+                  onUpdateNode(selectedNode.id, {
+                    properties: {
+                      ...data.properties,
+                      fontFamily: e.target.value === 'default' ? undefined : e.target.value,
+                    },
+                  })
+                }
+              >
+                {NODE_FONT_FAMILIES.map((font) => (
+                  <option key={font.id} value={font.id} style={{ fontFamily: font.css }}>
+                    {font.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="font-size-field">
+              Size
+              <div className="font-size-row">
+                <input
+                  type="range"
+                  min={NODE_FONT_MIN}
+                  max={NODE_FONT_MAX}
+                  value={parseNodeFontSize(data.properties)}
+                  onChange={(e) =>
+                    onUpdateNode(selectedNode.id, {
+                      properties: { ...data.properties, fontSize: e.target.value },
+                    })
+                  }
+                />
+                <span className="font-size-value">{parseNodeFontSize(data.properties)}px</span>
+              </div>
+              <div className="font-size-presets">
+                {[
+                  { label: 'Small', size: 10 },
+                  { label: 'Default', size: NODE_FONT_DEFAULT },
+                  { label: 'Large', size: 18 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className={`font-size-preset ${parseNodeFontSize(data.properties) === preset.size ? 'active' : ''}`}
+                    onClick={() =>
+                      onUpdateNode(selectedNode.id, {
+                        properties: {
+                          ...data.properties,
+                          fontSize: preset.size === NODE_FONT_DEFAULT ? undefined : String(preset.size),
+                        },
+                      })
+                    }
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <div className="font-style-toggles">
+              {NODE_FONT_WEIGHTS.map((weight) => (
+                <button
+                  key={weight.id}
+                  type="button"
+                  className={`font-size-preset ${parseNodeFontWeight(data.properties) === weight.id ? 'active' : ''}`}
+                  style={{ fontWeight: Number(weight.id) }}
+                  onClick={() =>
+                    onUpdateNode(selectedNode.id, {
+                      properties: {
+                        ...data.properties,
+                        fontWeight: weight.id === '600' ? undefined : weight.id,
+                      },
+                    })
+                  }
+                >
+                  {weight.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={`font-size-preset ${parseNodeFontStyle(data.properties) === 'italic' ? 'active' : ''}`}
+                style={{ fontStyle: 'italic' }}
+                onClick={() =>
+                  onUpdateNode(selectedNode.id, {
+                    properties: {
+                      ...data.properties,
+                      fontStyle: parseNodeFontStyle(data.properties) === 'italic' ? undefined : 'italic',
+                    },
+                  })
+                }
+              >
+                Italic
+              </button>
+            </div>
+            <div className="color-picker-section">
+              <span className="color-picker-label">Text color</span>
+              <div className="color-presets">
+                {COLOR_PRESETS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`color-swatch ${data.properties.textColor === color ? 'active' : ''}`}
+                    style={{ background: color }}
+                    title={color}
+                    onClick={() =>
+                      onUpdateNode(selectedNode.id, {
+                        properties: { ...data.properties, textColor: color },
+                      })
+                    }
+                  />
+                ))}
+              </div>
+              <div className="color-custom">
+                <input
+                  type="color"
+                  value={data.properties.textColor ?? '#0f172a'}
+                  onChange={(e) =>
+                    onUpdateNode(selectedNode.id, {
+                      properties: { ...data.properties, textColor: e.target.value },
+                    })
+                  }
+                />
+                <button
+                  type="button"
+                  className="btn-reset-color"
+                  onClick={() =>
+                    onUpdateNode(selectedNode.id, {
+                      properties: { ...data.properties, textColor: undefined },
+                    })
+                  }
+                >
+                  Reset default
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div className="color-picker-section">
             <span className="color-picker-label">Color</span>
@@ -328,6 +546,27 @@ export function PropertiesPanel({
             />
           )}
 
+          {(data.systemType === 'saas' || data.systemType === 'powerplatform') && onReadSaasMetadata && (
+            <div className="sub-diagram-section">
+              <div className="sub-diagram-header">
+                <Database size={16} />
+                <span>SaaS metadata</span>
+              </div>
+              <p className="sub-diagram-desc">
+                Read tables and lookups from a Dynamics 365, Dataverse, or Salesforce instance and place them
+                as this component’s data model.
+              </p>
+              <button
+                type="button"
+                className="btn-secondary sub-diagram-open-btn"
+                onClick={onReadSaasMetadata}
+              >
+                <Database size={16} />
+                Read metadata from instance
+              </button>
+            </div>
+          )}
+
           {!isGroup && !isShape && !isNote && onAnalyzeCapability && (
             <div className="sub-diagram-section">
               <div className="sub-diagram-header">
@@ -408,12 +647,15 @@ export function PropertiesPanel({
   }
 
   if (selectedEdge) {
-    const data = selectedEdge.data!
+    const data = liveEdgeData(document, drillPath, selectedEdge)
     return (
-      <aside className="properties">
+      <aside className={`properties ${variant === 'flyout' ? 'is-flyout' : ''}`}>
         <div className="panel-header">
-          <h2>Integration Properties</h2>
-          <p>{data.label}</p>
+          <div>
+            <h2>Integration Properties</h2>
+            <p>{data.label}</p>
+          </div>
+          {headerActions}
         </div>
         <div className="property-form">
           <label>
@@ -454,23 +696,44 @@ export function PropertiesPanel({
               Reset bends
             </button>
           )}
-          <label>
-            Direction
-            <select
-              value={data.direction}
-              onChange={(e) =>
+          <div className="arrow-direction-section">
+            <span className="color-picker-label">Arrow direction</span>
+            <div className="arrow-direction-grid">
+              {ARROW_DIRECTION_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`arrow-direction-btn ${data.direction === option.id ? 'active' : ''}`}
+                  onClick={() =>
+                    onUpdateEdge(selectedEdge.id, { direction: option.id })
+                  }
+                  title={option.hint}
+                >
+                  <strong>{option.symbol}</strong>
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() =>
                 onUpdateEdge(selectedEdge.id, {
-                  direction: e.target.value as IntegrationDirection,
+                  direction:
+                    data.direction === 'outbound'
+                      ? 'inbound'
+                      : data.direction === 'inbound'
+                        ? 'outbound'
+                        : 'outbound',
                 })
               }
             >
-              {DIRECTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
+              Reverse arrow
+            </button>
+            <span className="code-link-hint">
+              Select the connector, then pick which way the arrow points. Reverse swaps source and target arrows.
+            </span>
+          </div>
           <label>
             Protocol
             <select
@@ -607,4 +870,51 @@ export function PropertiesPanel({
   }
 
   return null
+}
+
+function liveNodeData(
+  document: ArchitectureDocument,
+  drillPath: DiagramPath,
+  node: Node<IntegrationNodeData>,
+): IntegrationNodeData {
+  const system = findSystemAtPath(document, drillPath, node.id)
+  if (!system) return node.data
+  return {
+    ...node.data,
+    systemType: system.type,
+    label: system.label,
+    category: system.category,
+    properties: system.properties ?? {},
+  }
+}
+
+function liveEdgeData(
+  document: ArchitectureDocument,
+  drillPath: DiagramPath,
+  edge: Edge<IntegrationEdgeData>,
+): IntegrationEdgeData {
+  const current = edge.data as IntegrationEdgeData
+  const integration = getDiagramView(document, drillPath).integrations.find((item) => item.id === edge.id)
+  if (!integration) return current
+  return {
+    ...current,
+    label: integration.label,
+    direction: integration.direction,
+    protocol: integration.protocol,
+    frequency: integration.frequency,
+    dataFormat: integration.dataFormat ?? '',
+    description: integration.description ?? '',
+    interfaceSpec: integration.interfaceSpec,
+    color: integration.color,
+    changeStatus: integration.changeStatus,
+    routing: parseEdgeRouting(integration.routing),
+    waypoints: integration.waypoints,
+    jiraIssueKey: integration.jiraIssueKey,
+    jiraIssueSummary: integration.jiraIssueSummary,
+    jiraIssueUrl: integration.jiraIssueUrl,
+    adoProject: integration.adoProject,
+    adoWorkItemId: integration.adoWorkItemId,
+    adoWorkItemTitle: integration.adoWorkItemTitle,
+    adoWorkItemUrl: integration.adoWorkItemUrl,
+  }
 }

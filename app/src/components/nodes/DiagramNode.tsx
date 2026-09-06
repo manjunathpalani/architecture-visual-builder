@@ -9,8 +9,14 @@ import { SubDiagramBadge } from '../SubDiagramBadge'
 import { ChangeStatusBadge } from '../ChangeStatusBadge'
 import { parseChangeStatus } from '../../utils/architectureState'
 import { NodeConnectors } from './NodeConnectors'
+import { withNodeFontSize } from '../../utils/nodeFontSize'
+import { useDiagramLock } from './diagramLockContext'
+import { InlineNodeTitleEditor } from './InlineNodeTitleEditor'
+import { useNodeTitleEdit } from './nodeTitleEditContext'
 
-export function DiagramNode({ data, selected }: NodeProps) {
+export function DiagramNode({ id, data, selected }: NodeProps) {
+  const layoutLocked = useDiagramLock()
+  const { startEditing } = useNodeTitleEdit()
   const nodeData = data as IntegrationNodeData
   const shape = (nodeData.properties.shape ?? 'process') as DiagramShape
   const color = getNodeColor(nodeData)
@@ -18,18 +24,33 @@ export function DiagramNode({ data, selected }: NodeProps) {
 
   return (
     <>
+      <InlineNodeTitleEditor nodeId={id} label={nodeData.label} />
       <NodeResizer
-        minWidth={100}
-        minHeight={80}
-        isVisible={selected}
+        minWidth={64}
+        minHeight={48}
+        isVisible={selected && !layoutLocked}
         lineClassName="resize-line"
         handleClassName="resize-handle"
       />
       <div
-        className={`diagram-node-wrapper resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
-        style={{ '--diagram-color': color } as React.CSSProperties}
+        className={`diagram-node-wrapper resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
+        style={withNodeFontSize(nodeData.properties, { '--diagram-color': color } as React.CSSProperties)}
+        title="Double-click to rename"
+        onDoubleClick={(event) => {
+          event.stopPropagation()
+          startEditing(id)
+        }}
       >
         <NodeConnectors variant="diagram" />
+        {nodeData.hasSubDiagramContent && (
+          <SubDiagramBadge
+            nodeId={id}
+            label={nodeData.label}
+            systems={nodeData.subDiagramStats?.systems}
+            integrations={nodeData.subDiagramStats?.integrations}
+            compact
+          />
+        )}
         <ChangeStatusBadge status={nodeData.properties.changeStatus} compact />
         <DiagramShapeRenderer
           shape={shape}
@@ -38,13 +59,6 @@ export function DiagramNode({ data, selected }: NodeProps) {
           properties={nodeData.properties}
         />
         <div className="diagram-code-badge">
-          {nodeData.hasSubDiagramContent && nodeData.subDiagramStats && (
-            <SubDiagramBadge
-              systems={nodeData.subDiagramStats.systems}
-              integrations={nodeData.subDiagramStats.integrations}
-              compact
-            />
-          )}
           <WorkItemBadge fields={nodeData.properties} compact />
           <CodeLinkBadge properties={nodeData.properties} compact />
         </div>

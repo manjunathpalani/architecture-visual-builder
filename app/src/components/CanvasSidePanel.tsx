@@ -8,7 +8,8 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ArchitectureStateView } from '../utils/architectureState'
-import type { FlowColorBy, FlowStyle, FlowTrace } from '../utils/flowTrace'
+import type { PropertiesPlacement } from '../utils/canvasDocks'
+import type { FlowColorBy, FlowScope, FlowStyle, FlowTrace } from '../utils/flowTrace'
 import { ArchitectureLegendItems, ArchitectureStateButtons } from './ArchitectureStateLegend'
 
 const SECTION_IDS = [
@@ -23,13 +24,13 @@ type SectionId = (typeof SECTION_IDS)[number]
 
 const SECTION_LABELS: Record<SectionId, string> = {
   view: 'View',
-  flow: 'Flow colour',
+  flow: 'Flow',
   state: 'Architecture state',
   legend: 'Legend',
   properties: 'Properties',
 }
 
-const DEFAULT_OPEN: SectionId[] = ['view', 'properties']
+const DEFAULT_OPEN: SectionId[] = ['view', 'flow', 'properties']
 const EXPANDED_STORAGE_KEY = 'avb-tools-expanded-sections'
 
 function loadExpandedSections(): Set<SectionId> {
@@ -96,6 +97,8 @@ interface CanvasSidePanelProps {
   stateView: ArchitectureStateView
   onStateView: (view: ArchitectureStateView) => void
   properties?: ReactNode
+  propertiesPlacement?: PropertiesPlacement
+  onPropertiesPlacement?: (placement: PropertiesPlacement) => void
   selectionKey?: string | null
   onExpand?: () => void
 }
@@ -115,6 +118,8 @@ export function CanvasSidePanel({
   stateView,
   onStateView,
   properties,
+  propertiesPlacement = 'side',
+  onPropertiesPlacement,
   selectionKey = null,
   onExpand,
 }: CanvasSidePanelProps) {
@@ -223,6 +228,27 @@ export function CanvasSidePanel({
                 </button>
               )}
             </div>
+            {onPropertiesPlacement && (
+              <>
+                <p className="flow-scope-label">Properties</p>
+                <div className="canvas-side-tools">
+                  <button
+                    type="button"
+                    className={`flow-color-btn ${propertiesPlacement === 'side' ? 'active' : ''}`}
+                    onClick={() => onPropertiesPlacement('side')}
+                  >
+                    Side panel
+                  </button>
+                  <button
+                    type="button"
+                    className={`flow-color-btn ${propertiesPlacement === 'flyout' ? 'active' : ''}`}
+                    onClick={() => onPropertiesPlacement('flyout')}
+                  >
+                    Next to component
+                  </button>
+                </div>
+              </>
+            )}
           </PanelSection>
 
           <PanelSection id="flow" expanded={expanded.has('flow')} onToggle={toggleSection}>
@@ -243,22 +269,40 @@ export function CanvasSidePanel({
                         : 'Path'}
                 </button>
               ))}
-              <label className="flow-e2e-toggle">
-                <input
-                  type="checkbox"
-                  checked={flowStyle.endToEnd}
-                  onChange={(e) => onFlowStyle({ endToEnd: e.target.checked })}
-                />
-                End-to-end
-              </label>
+            </div>
+            <p className="flow-scope-label">When a component is selected</p>
+            <div className="canvas-side-tools">
+              {([
+                { id: 'direct', label: 'Direct links', title: 'Only boxes with a line to the selected component' },
+                {
+                  id: 'touches',
+                  label: 'All touches',
+                  title: 'Every system the selected component connects to, with flow and touch points',
+                },
+                { id: 'chain', label: 'Full chain', title: 'Follow the connected integration chain' },
+              ] as Array<{ id: FlowScope; label: string; title: string }>).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  title={item.title}
+                  className={`flow-color-btn ${(flowStyle.scope ?? 'direct') === item.id ? 'active' : ''}`}
+                  onClick={() => onFlowStyle({ scope: item.id, endToEnd: item.id === 'chain' })}
+                >
+                  {item.label}
+                </button>
+              ))}
             </div>
             {(flowFocusId || flowEdgeId) && (
               <div className="flow-legend">
                 <span className="flow-legend-title">
-                  {flowStyle.endToEnd ? 'End-to-end paths' : 'Flow vs selection'}
+                  {flowStyle.scope === 'chain'
+                    ? 'Connected chain'
+                    : flowStyle.scope === 'touches'
+                      ? `All touches (${flowTrace?.directNodeIds.size ?? 0})`
+                      : 'Direct connections'}
                 </span>
-                {flowStyle.endToEnd && flowTrace && flowTrace.paths.length > 0 ? (
-                  flowTrace.paths.slice(0, 6).map((path) => (
+                {flowStyle.scope !== 'direct' && flowTrace && flowTrace.paths.length > 0 ? (
+                  flowTrace.paths.slice(0, 8).map((path) => (
                     <span key={path.id} className="flow-path-chip" title={path.labels.join(' → ')}>
                       <i style={{ background: path.color }} />
                       {path.labels.join(' → ')}
@@ -274,8 +318,8 @@ export function CanvasSidePanel({
                     </span>
                   </>
                 )}
-                {flowStyle.endToEnd && flowTrace && flowTrace.paths.length > 6 && (
-                  <span className="flow-legend-item dim">+{flowTrace.paths.length - 6} more</span>
+                {flowStyle.scope !== 'direct' && flowTrace && flowTrace.paths.length > 8 && (
+                  <span className="flow-legend-item dim">+{flowTrace.paths.length - 8} more</span>
                 )}
                 <span className="flow-legend-item dim">Other links dimmed</span>
               </div>
@@ -298,7 +342,15 @@ export function CanvasSidePanel({
               expanded={expanded.has('properties')}
               onToggle={toggleSection}
             >
-              <div className="canvas-side-properties visible">{properties}</div>
+              <div className="canvas-side-properties visible">
+                {propertiesPlacement === 'flyout' ? (
+                  <p className="code-link-hint">
+                    Properties open next to the selected component. Choose Side panel to dock them here.
+                  </p>
+                ) : (
+                  properties
+                )}
+              </div>
             </PanelSection>
           </div>
         </div>

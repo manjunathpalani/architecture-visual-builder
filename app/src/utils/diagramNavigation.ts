@@ -184,11 +184,15 @@ export interface SubTabItem {
   stats?: { systems: number; integrations: number }
 }
 
+function isSubTabSystem(system: SystemNode): boolean {
+  return hasSubDiagram(system) || (system.properties?.subTab === 'template' && Boolean(system.subDiagram))
+}
+
 export function listSubTabs(doc: ArchitectureDocument, currentPath: DiagramPath): SubTabItem[] {
   const tabs: SubTabItem[] = [
     {
       id: 'overview',
-      name: 'Overview',
+      name: doc.metadata.name || 'Overview',
       path: [],
       kind: 'overview',
       stats: { systems: doc.systems.length, integrations: doc.integrations.length },
@@ -196,7 +200,7 @@ export function listSubTabs(doc: ArchitectureDocument, currentPath: DiagramPath)
   ]
 
   for (const system of doc.systems) {
-    if (!hasSubDiagram(system) && !system.subDiagram) continue
+    if (!isSubTabSystem(system)) continue
     tabs.push({
       id: system.id,
       name: system.label,
@@ -292,6 +296,30 @@ export function addSystemsInView(
   if (systems.length === 0) return doc
   const view = getDiagramView(doc, path)
   return updateDiagramAtPath(doc, path, [...view.systems, ...systems], view.integrations)
+}
+
+export function renameSystemAtPath(
+  doc: ArchitectureDocument,
+  path: DiagramPath,
+  name: string,
+): ArchitectureDocument {
+  if (path.length === 0) {
+    return {
+      ...doc,
+      metadata: { ...doc.metadata, name },
+    }
+  }
+  const parentPath = path.slice(0, -1)
+  const systemId = path[path.length - 1].systemId
+  return updateSystemInView(doc, parentPath, systemId, (system) => ({
+    ...system,
+    label: name,
+    subDiagram: system.subDiagram ? { ...system.subDiagram, name } : system.subDiagram,
+  }))
+}
+
+export function renameDrillPath(path: DiagramPath, systemId: string, label: string): DiagramPath {
+  return path.map((segment) => (segment.systemId === systemId ? { ...segment, label } : segment))
 }
 
 export function updateSystemInView(

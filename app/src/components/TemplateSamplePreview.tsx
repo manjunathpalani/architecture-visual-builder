@@ -10,6 +10,7 @@ export function TemplateSamplePreview({ id }: TemplateSamplePreviewProps) {
     <div className="template-sample-preview" aria-hidden="true">
       {id === 'blank' && <BlankPreview />}
       {id === 'enterprise' && <EnterprisePreview />}
+      {id === 'business-context' && <IndustryPreview accent="#7c3aed" labels={['Outcome', 'Value stream', 'Apps']} />}
       {id === 'solution' && <SolutionPreview />}
       {id === 'contextual' && <ContextualPreview />}
       {id === 'functional' && <FunctionalPreview />}

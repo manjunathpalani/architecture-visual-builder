@@ -1,5 +1,6 @@
 import { Handle, Position } from '@xyflow/react'
 import type { CSSProperties } from 'react'
+import { useDiagramLock } from './diagramLockContext'
 
 type ConnectorVariant = 'node' | 'diagram' | 'shape'
 
@@ -59,6 +60,9 @@ function classNameFor(variant: ConnectorVariant, isSource: boolean) {
 }
 
 export function NodeConnectors({ variant = 'node' }: { variant?: ConnectorVariant }) {
+  const layoutLocked = useDiagramLock()
+  if (layoutLocked) return null
+
   return (
     <>
       {SIDES.flatMap(({ position, side, offsets }) =>

@@ -3,6 +3,10 @@ import type { DrawingShapeKind } from '../../types'
 import { DRAWING_SHAPE_LABELS } from '../../types'
 import type { IntegrationNodeData } from '../../utils/jsonIO'
 import { NodeConnectors } from './NodeConnectors'
+import { withNodeFontSize } from '../../utils/nodeFontSize'
+import { useDiagramLock } from './diagramLockContext'
+import { InlineNodeTitleEditor } from './InlineNodeTitleEditor'
+import { useNodeTitleEdit } from './nodeTitleEditContext'
 
 function shapeKind(data: IntegrationNodeData): DrawingShapeKind {
   const raw = data.properties.shape as DrawingShapeKind | undefined
@@ -133,7 +137,9 @@ function ShapeGeometry({
   }
 }
 
-export function ShapeNode({ data, selected }: NodeProps) {
+export function ShapeNode({ id, data, selected }: NodeProps) {
+  const layoutLocked = useDiagramLock()
+  const { startEditing } = useNodeTitleEdit()
   const nodeData = data as IntegrationNodeData
   const kind = shapeKind(nodeData)
   const color = nodeData.properties.color ?? '#64748b'
@@ -142,10 +148,11 @@ export function ShapeNode({ data, selected }: NodeProps) {
 
   return (
     <>
+      <InlineNodeTitleEditor nodeId={id} label={label} />
       <NodeResizer
-        minWidth={60}
-        minHeight={48}
-        isVisible={selected}
+        minWidth={48}
+        minHeight={36}
+        isVisible={selected && !layoutLocked}
         lineClassName="resize-line"
         handleClassName="resize-handle"
       />
@@ -153,7 +160,13 @@ export function ShapeNode({ data, selected }: NodeProps) {
       <NodeConnectors variant="shape" />
 
       <div
-        className={`shape-node resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''}`}
+        className={`shape-node resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''}`}
+        style={withNodeFontSize(nodeData.properties)}
+        title="Double-click to rename"
+        onDoubleClick={(event) => {
+          event.stopPropagation()
+          startEditing(id)
+        }}
       >
         <svg className="shape-node-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
           <ShapeGeometry kind={kind} color={color} fill={fill} selected={!!selected} />

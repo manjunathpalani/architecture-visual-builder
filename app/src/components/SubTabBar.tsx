@@ -1,6 +1,7 @@
 import { LayoutTemplate, Plus, X } from 'lucide-react'
 import type { DiagramPath } from '../types/diagram'
 import type { SubTabItem } from '../utils/diagramNavigation'
+import { EditableTabName } from './EditableTabName'
 
 interface SubTabBarProps {
   tabs: SubTabItem[]
@@ -8,6 +9,7 @@ interface SubTabBarProps {
   onSelect: (path: DiagramPath) => void
   onNewFromTemplate: () => void
   onRemove: (tab: SubTabItem) => void
+  onRename: (tab: SubTabItem, name: string) => void
 }
 
 export function SubTabBar({
@@ -16,6 +18,7 @@ export function SubTabBar({
   onSelect,
   onNewFromTemplate,
   onRemove,
+  onRename,
 }: SubTabBarProps) {
   const activeId =
     currentPath.length === 0 ? 'overview' : currentPath[currentPath.length - 1].systemId
@@ -38,15 +41,28 @@ export function SubTabBar({
               onKeyDown={(e) => e.key === 'Enter' && onSelect(tab.path)}
               tabIndex={0}
             >
-              <span className="sub-tab-name">{tab.name}</span>
+              <EditableTabName
+                name={tab.name}
+                className="sub-tab-name"
+                onRename={(next) => onRename(tab, next)}
+              />
               {stats && <span className="sub-tab-stats">{stats}</span>}
               {tab.kind !== 'overview' && (
                 <button
                   type="button"
                   className="sub-tab-close"
-                  aria-label={`Remove ${tab.name}`}
-                  title="Remove sub-tab"
+                  aria-label={`Close ${tab.name}`}
+                  title="Close sub-tab"
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                  }}
                   onClick={(e) => {
+                    e.preventDefault()
                     e.stopPropagation()
                     onRemove(tab)
                   }}

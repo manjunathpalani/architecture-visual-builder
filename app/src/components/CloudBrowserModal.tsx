@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronRight, Cloud, FolderOpen, HardDrive, Loader2, X } from 'lucide-react'
 import {
+  defaultGoogleClientId,
+  defaultMicrosoftClientId,
   getGoogleBucket,
   isGoogleConnected,
   isICloudConnected,
   isMicrosoftConnected,
+  setGoogleClientId,
+  setMicrosoftClientId,
 } from '../utils/cloud/cloudCredentials'
-import { CloudApiError } from '../utils/cloud/oauth'
+import {
+  CloudApiError,
+  openSignInWindow,
+  peekPreparedLoginUrl,
+  signInWithGoogle,
+  signInWithMicrosoft,
+} from '../utils/cloud/oauth'
 import {
   listOneDriveChildren,
   listSharePointChildren,
@@ -48,6 +58,12 @@ export function CloudBrowserModal({ mode, suggestedName, onClose, onOpen, onSave
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [authEpoch, setAuthEpoch] = useState(0)
+  const [msClientId, setMsClientId] = useState(defaultMicrosoftClientId())
+  const [googleClientId, setGoogleClientIdState] = useState(defaultGoogleClientId())
+  const msConnected = isMicrosoftConnected()
+  const googleConnected = isGoogleConnected()
+  const icloudConnected = isICloudConnected()
 
   const load = useCallback(async () => {
     const enabled =
@@ -87,7 +103,7 @@ export function CloudBrowserModal({ mode, suggestedName, onClose, onOpen, onSave
     } finally {
       setLoading(false)
     }
-  }, [store, crumbs, siteId])
+  }, [store, crumbs, siteId, authEpoch])
 
   useEffect(() => {
     void load()
@@ -129,6 +145,46 @@ export function CloudBrowserModal({ mode, suggestedName, onClose, onOpen, onSave
     }
   }
 
+  const signInMicrosoft = () => {
+    const id = msClientId.trim() || defaultMicrosoftClientId()
+    if (!id) {
+      setError('Enter an Azure app (client) ID, then Continue with Microsoft opens the Microsoft sign-in page.')
+      return
+    }
+    setMicrosoftClientId(id)
+    const popup = openSignInWindow(peekPreparedLoginUrl('microsoft', id) ?? 'about:blank')
+    setError(null)
+    void (async () => {
+      try {
+        await signInWithMicrosoft(id, popup)
+        setAuthEpoch((value) => value + 1)
+        setStore('onedrive')
+      } catch (err) {
+        setError(err instanceof CloudApiError ? err.message : 'Microsoft sign-in failed')
+      }
+    })()
+  }
+
+  const signInGoogle = () => {
+    const id = googleClientId.trim() || defaultGoogleClientId()
+    if (!id) {
+      setError('Enter a Google OAuth client ID, then Continue with Google opens the Google sign-in page.')
+      return
+    }
+    setGoogleClientId(id)
+    const popup = openSignInWindow(peekPreparedLoginUrl('google', id) ?? 'about:blank')
+    setError(null)
+    void (async () => {
+      try {
+        await signInWithGoogle(id, Boolean(getGoogleBucket()), popup)
+        setAuthEpoch((value) => value + 1)
+        setStore('google-drive')
+      } catch (err) {
+        setError(err instanceof CloudApiError ? err.message : 'Google sign-in failed')
+      }
+    })()
+  }
+
   const handleSave = async () => {
     const name = fileName.trim().endsWith('.json') ? fileName.trim() : `${fileName.trim()}.json`
     if (!name || name === '.json') return
@@ -143,14 +199,14 @@ export function CloudBrowserModal({ mode, suggestedName, onClose, onOpen, onSave
   }
 
   return (
-    <div className="repo-browser-overlay">
+    <div className="repo-browser-overlay" onClick={(event) => event.stopPropagation()}>
       <div className="repo-browser work-item-browser">
         <div className="repo-browser-header">
           <div>
             <h2>{mode === 'open' ? 'Open from cloud' : 'Save to cloud'}</h2>
             <p>
               {mode === 'open'
-                ? 'Sign in under Settings → Cloud storage, then pick an architecture JSON file.'
+                ? 'Sign in with Microsoft or Google, then pick an architecture JSON file.'
                 : 'Choose a folder. The project JSON is written there.'}
             </p>
           </div>
@@ -160,17 +216,51 @@ export function CloudBrowserModal({ mode, suggestedName, onClose, onOpen, onSave
         </div>
 
         <div className="repo-browser-providers">
-          <StoreTab id="onedrive" label="OneDrive" icon={<Cloud size={16} />} store={store} enabled={isMicrosoftConnected()} onSelect={setStore} reset={() => setCrumbs([])} />
-          <StoreTab id="sharepoint" label="SharePoint" icon={<Cloud size={16} />} store={store} enabled={isMicrosoftConnected()} onSelect={setStore} reset={() => { setCrumbs([]); setSiteId('') }} />
-          <StoreTab id="google-drive" label="Google Drive" icon={<HardDrive size={16} />} store={store} enabled={isGoogleConnected()} onSelect={setStore} reset={() => setCrumbs([])} />
-          <StoreTab id="gcs" label="Google Cloud" icon={<HardDrive size={16} />} store={store} enabled={isGoogleConnected() && Boolean(getGoogleBucket())} onSelect={setStore} reset={() => setCrumbs([])} />
-          <StoreTab id="icloud" label="iCloud" icon={<FolderOpen size={16} />} store={store} enabled={isICloudConnected()} onSelect={setStore} reset={() => setCrumbs([])} />
+          <StoreTab id="onedrive" label="OneDrive" icon={<Cloud size={16} />} store={store} enabled={msConnected} onSelect={setStore} reset={() => setCrumbs([])} />
+          <StoreTab id="sharepoint" label="SharePoint" icon={<Cloud size={16} />} store={store} enabled={msConnected} onSelect={setStore} reset={() => { setCrumbs([]); setSiteId('') }} />
+          <StoreTab id="google-drive" label="Google Drive" icon={<HardDrive size={16} />} store={store} enabled={googleConnected} onSelect={setStore} reset={() => setCrumbs([])} />
+          <StoreTab id="gcs" label="Google Cloud" icon={<HardDrive size={16} />} store={store} enabled={googleConnected && Boolean(getGoogleBucket())} onSelect={setStore} reset={() => setCrumbs([])} />
+          <StoreTab id="icloud" label="iCloud" icon={<FolderOpen size={16} />} store={store} enabled={icloudConnected} onSelect={setStore} reset={() => setCrumbs([])} />
         </div>
 
-        {!isMicrosoftConnected() && !isGoogleConnected() && !isICloudConnected() && (
-          <p className="repo-browser-warn">
-            Sign in under Settings → Cloud storage (Microsoft, Google, or an iCloud Drive folder) before opening or saving.
-          </p>
+        {!msConnected && !googleConnected && !icloudConnected && (
+          <div className="repo-browser-warn">
+            <p>Sign in to Microsoft or Google to browse files. Continue opens the sign-in page in a window, or this tab if popups are blocked.</p>
+            <label>
+              Azure app (client) ID — one-time
+              <input
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={msClientId}
+                onChange={(event) => {
+                  setMsClientId(event.target.value)
+                  setMicrosoftClientId(event.target.value)
+                }}
+              />
+            </label>
+            <label>
+              Google OAuth client ID — one-time
+              <input
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="xxxx.apps.googleusercontent.com"
+                value={googleClientId}
+                onChange={(event) => {
+                  setGoogleClientIdState(event.target.value)
+                  setGoogleClientId(event.target.value)
+                }}
+              />
+            </label>
+            <div className="git-int-actions">
+              <button type="button" className="btn-primary" onClick={signInMicrosoft}>
+                Continue with Microsoft
+              </button>
+              <button type="button" className="btn-secondary" onClick={signInGoogle}>
+                Continue with Google
+              </button>
+            </div>
+          </div>
         )}
 
         {store === 'sharepoint' && (

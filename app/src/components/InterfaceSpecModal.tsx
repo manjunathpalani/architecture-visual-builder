@@ -9,7 +9,13 @@ interface InterfaceSpecModalProps {
 
 export function InterfaceSpecModal({ spec, onClose }: InterfaceSpecModalProps) {
   return (
-    <div className="interface-spec-overlay" onClick={onClose}>
+    <div
+      className="interface-spec-overlay"
+      onClick={(event) => {
+        event.stopPropagation()
+        onClose()
+      }}
+    >
       <div className="interface-spec-modal" onClick={(e) => e.stopPropagation()}>
         <div className="interface-spec-modal-header">
           <div>
@@ -19,9 +25,14 @@ export function InterfaceSpecModal({ spec, onClose }: InterfaceSpecModalProps) {
               {spec.baseUrl && <> · <code>{spec.baseUrl}</code></>}
             </p>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="dialog-header-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Back
+            </button>
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {spec.description && (

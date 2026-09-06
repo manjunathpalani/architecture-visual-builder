@@ -2,7 +2,14 @@ import { Component, StrictMode, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './index.css'
-import { handleOAuthPopupCallback } from './utils/cloud/oauth'
+import {
+  completeOAuthRedirect,
+  handleOAuthPopupCallback,
+  isOAuthCallbackLocation,
+  prefetchGoogleLogin,
+  prefetchMicrosoftLogin,
+} from './utils/cloud/oauth'
+import { loadOAuthAppConfig } from './utils/cloud/oauthConfig'
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -32,17 +39,31 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
   }
 }
 
-let handledOAuth = false
-try {
-  handledOAuth = handleOAuthPopupCallback()
-} catch {
-  handledOAuth = false
-}
+void startApp()
 
-if (handledOAuth) {
-  document.body.innerHTML =
-    '<p style="font-family:sans-serif;padding:24px;color:#334155">Signed in. You can close this window.</p>'
-} else {
+async function startApp() {
+  if (isOAuthCallbackLocation()) {
+    try {
+      if (handleOAuthPopupCallback()) {
+        document.body.innerHTML =
+          '<p style="font-family:sans-serif;padding:24px;color:#334155">Signed in. You can close this window.</p>'
+        return
+      }
+      if (await completeOAuthRedirect()) {
+        window.location.replace('/')
+        return
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Sign-in failed'
+      document.body.innerHTML = `<p style="font-family:sans-serif;padding:24px;color:#b91c1c">${message}</p>`
+      return
+    }
+  }
+
+  void loadOAuthAppConfig().then((config) => {
+    if (config.microsoftClientId) void prefetchMicrosoftLogin(config.microsoftClientId)
+    if (config.googleClientId) void prefetchGoogleLogin(config.googleClientId)
+  })
   const root = document.getElementById('root')
   if (root) {
     createRoot(root).render(

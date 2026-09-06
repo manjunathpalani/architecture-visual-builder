@@ -26,7 +26,7 @@ const SYSTEM_TYPES = new Set<SystemType>([
   'saas', 'aws', 'azure', 'powerplatform', 'cloud', 'onpremise', 'middleware',
   'database', 'external', 'diagram', 'note', 'group', 'shape',
 ])
-const DIRECTIONS = new Set<IntegrationDirection>(['inbound', 'outbound', 'bidirectional'])
+const DIRECTIONS = new Set<IntegrationDirection>(['inbound', 'outbound', 'bidirectional', 'none'])
 const PROTOCOLS = new Set<IntegrationProtocol>([
   'REST API', 'SOAP', 'GraphQL', 'SFTP', 'Kafka', 'MQTT',
   'Webhook', 'ODBC/JDBC', 'File Transfer', 'Custom',

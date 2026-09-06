@@ -122,6 +122,31 @@ export function layoutGrid(nodes: Node<IntegrationNodeData>[]): Node<Integration
   return repositionGroups([...positioned, ...groupNodes], groupNodes)
 }
 
+/**
+ * Chooses a layout based on the information available in the diagram. Connected
+ * architecture diagrams benefit most from a directional flow; disconnected
+ * components stay readable in a grid; and varied platform landscapes read best
+ * in technology tiers.
+ */
+export function layoutSmart(
+  nodes: Node<IntegrationNodeData>[],
+  edges: Edge[],
+): Node<IntegrationNodeData>[] {
+  const contentNodes = nodes.filter((node) => node.type !== 'group')
+  const connectedEdges = edges.filter(
+    (edge) =>
+      contentNodes.some((node) => node.id === edge.source) &&
+      contentNodes.some((node) => node.id === edge.target),
+  )
+
+  if (connectedEdges.length > 0) return layoutFlow(nodes, connectedEdges, 'LR')
+
+  const systemTypes = new Set(contentNodes.map((node) => node.data.systemType))
+  if (systemTypes.size >= 3) return layoutByTier(nodes)
+
+  return layoutGrid(nodes)
+}
+
 function repositionGroups(
   nodes: Node<IntegrationNodeData>[],
   groupNodes: Node<IntegrationNodeData>[],

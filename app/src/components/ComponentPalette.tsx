@@ -6,8 +6,11 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   LayoutGrid,
+  Search,
 } from 'lucide-react'
 import { PALETTE_CATEGORY_ORDER, PALETTE_ITEMS, SYSTEM_TYPE_CONFIG, type PaletteItem } from '../types'
+import { AZURE_PALETTE_CATEGORIES, AZURE_PALETTE_ITEMS } from '../data/azurePalette'
+import { MICROSOFT_PALETTE_CATEGORIES, MICROSOFT_PALETTE_ITEMS } from '../data/microsoftPalette'
 import { ServiceIcon } from './icons/ServiceIcons'
 
 const STORAGE_KEY = 'palette-expanded-categories'
@@ -22,7 +25,16 @@ function loadExpandedCategories(categories: string[]): Set<string> {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as string[]
-      return new Set(parsed.filter((c) => categories.includes(c)))
+      const saved = new Set(parsed.filter((c) => categories.includes(c)))
+      for (const category of categories) {
+        if (
+          !parsed.includes(category) &&
+          (category.startsWith('Azure') || category.startsWith('Microsoft'))
+        ) {
+          saved.add(category)
+        }
+      }
+      return saved
     }
   } catch {
     /* ignore */
@@ -41,19 +53,36 @@ function loadPanelOpen(): boolean {
   return true
 }
 
+const PALETTE_ITEMS_ALL: PaletteItem[] = [
+  ...PALETTE_ITEMS.filter((item) => item.category !== 'Azure'),
+  ...AZURE_PALETTE_ITEMS,
+  ...MICROSOFT_PALETTE_ITEMS,
+]
+
+const PALETTE_ORDER_ALL = PALETTE_CATEGORY_ORDER.flatMap((category) => {
+  if (category === 'Azure') return [...AZURE_PALETTE_CATEGORIES]
+  if (category === 'Microsoft 365') return [...MICROSOFT_PALETTE_CATEGORIES]
+  return [category]
+})
+
 export function ComponentPalette({ onDragStart }: ComponentPaletteProps) {
-  const grouped = useMemo(
-    () =>
-      PALETTE_ITEMS.reduce<Record<string, PaletteItem[]>>((acc, item) => {
-        if (!acc[item.category]) acc[item.category] = []
-        acc[item.category].push(item)
-        return acc
-      }, {}),
-    [],
-  )
+  const [query, setQuery] = useState('')
+
+  const grouped = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return PALETTE_ITEMS_ALL.reduce<Record<string, PaletteItem[]>>((acc, item) => {
+      if (q) {
+        const haystack = `${item.label} ${item.defaultProperties?.service ?? ''} ${item.category}`.toLowerCase()
+        if (!haystack.includes(q)) return acc
+      }
+      if (!acc[item.category]) acc[item.category] = []
+      acc[item.category].push(item)
+      return acc
+    }, {})
+  }, [query])
 
   const visibleCategories = useMemo(
-    () => PALETTE_CATEGORY_ORDER.filter((cat) => grouped[cat]),
+    () => PALETTE_ORDER_ALL.filter((cat) => grouped[cat]?.length),
     [grouped],
   )
 
@@ -91,6 +120,7 @@ export function ComponentPalette({ onDragStart }: ComponentPaletteProps) {
     setExpanded(new Set())
   }, [])
 
+  const searching = query.trim().length > 0
   const allExpanded = expanded.size === visibleCategories.length
   const allCollapsed = expanded.size === 0
 
@@ -135,9 +165,21 @@ export function ComponentPalette({ onDragStart }: ComponentPaletteProps) {
             </button>
           </div>
         </div>
+        <label className="palette-search">
+          <Search size={14} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search Azure, Microsoft 365, AWS…"
+            aria-label="Search components"
+          />
+        </label>
         <div className="palette-groups">
+          {visibleCategories.length === 0 && (
+            <p className="palette-search-empty">No components match “{query.trim()}”.</p>
+          )}
           {visibleCategories.map((category) => {
-            const isOpen = expanded.has(category)
+            const isOpen = searching || expanded.has(category)
             const count = grouped[category].length
 
             return (

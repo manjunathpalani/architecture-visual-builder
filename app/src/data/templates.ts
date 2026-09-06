@@ -22,6 +22,7 @@ import sampleArchitecture from './sample-architecture.json'
 export type ArchitectureTemplateId =
   | 'blank'
   | 'enterprise'
+  | 'business-context'
   | 'solution'
   | 'contextual'
   | 'functional'
@@ -566,6 +567,42 @@ function createEnterpriseArchitecture(): ArchitectureDocument {
 }
 
 /** Solution Architecture — C4-style system context for a concrete solution */
+function createBusinessArchitectureContext(): ArchitectureDocument {
+  return stamp({
+    metadata: {
+      name: 'Business Architecture Context',
+      description: 'Business-first context showing stakeholders, outcomes, value streams, capabilities, and enabling systems.',
+      version: '1.0.0', updatedAt: new Date().toISOString(),
+    },
+    systems: [
+      { id: 'bc-customer', type: 'diagram', label: 'Customers & Partners', category: 'Business', position: { x: 80, y: 110 }, properties: { shape: 'c4-person', description: 'People and organisations served by the business' } },
+      { id: 'bc-leadership', type: 'diagram', label: 'Executive Leadership', category: 'Business', position: { x: 80, y: 310 }, properties: { shape: 'actor', description: 'Sets strategic priorities, investment, and outcomes' } },
+      { id: 'bc-outcome', type: 'diagram', label: 'Trusted, Frictionless Service', category: 'Business', position: { x: 340, y: 80 }, properties: { shape: 'package', description: 'Target business outcome: grow loyalty while reducing cost to serve' } },
+      { id: 'bc-value-stream', type: 'diagram', label: 'Discover → Buy → Receive → Support', category: 'Business', position: { x: 340, y: 270 }, properties: { shape: 'process', description: 'Customer value stream from engagement through ongoing support' } },
+      { id: 'bc-sales', type: 'diagram', label: 'Acquire & Serve Customers', category: 'Business', position: { x: 660, y: 100 }, properties: { shape: 'package', description: 'Marketing, sales, service, and relationship management capability' } },
+      { id: 'bc-fulfil', type: 'diagram', label: 'Fulfil & Assure', category: 'Business', position: { x: 660, y: 290 }, properties: { shape: 'package', description: 'Order, fulfilment, billing, and operational assurance capability' } },
+      { id: 'bc-channel', type: 'saas', label: 'Digital Channels & CRM', category: 'Application', position: { x: 960, y: 100 }, properties: { vendor: 'Example', description: 'Customer engagement, self-service, and relationship platform' } },
+      { id: 'bc-core', type: 'onpremise', label: 'Core Operations Platform', category: 'Application', position: { x: 960, y: 290 }, properties: { description: 'Order, fulfilment, billing, and operational data platform' } },
+    ],
+    integrations: [
+      { id: 'bc-customer-outcome', source: 'bc-customer', target: 'bc-outcome', label: 'expects', direction: 'outbound', protocol: 'Custom', frequency: 'real-time', dataFormat: 'n/a', description: 'Customer needs shape the target outcome' },
+      { id: 'bc-leadership-outcome', source: 'bc-leadership', target: 'bc-outcome', label: 'sponsors', direction: 'outbound', protocol: 'Custom', frequency: 'scheduled', dataFormat: 'n/a', description: 'Leadership owns the business outcome' },
+      { id: 'bc-outcome-stream', source: 'bc-outcome', target: 'bc-value-stream', label: 'measured through', direction: 'outbound', protocol: 'Custom', frequency: 'scheduled', dataFormat: 'n/a', description: 'Value-stream measures indicate outcome progress' },
+      { id: 'bc-stream-sales', source: 'bc-value-stream', target: 'bc-sales', label: 'requires', direction: 'outbound', protocol: 'Custom', frequency: 'real-time', dataFormat: 'n/a', description: 'Customer engagement capability enables the value stream' },
+      { id: 'bc-stream-fulfil', source: 'bc-value-stream', target: 'bc-fulfil', label: 'requires', direction: 'outbound', protocol: 'Custom', frequency: 'real-time', dataFormat: 'n/a', description: 'Operational capability enables the value stream' },
+      { id: 'bc-sales-channel', source: 'bc-sales', target: 'bc-channel', label: 'enabled by', direction: 'outbound', protocol: 'Custom', frequency: 'real-time', dataFormat: 'n/a', description: 'Digital channels and CRM realise customer capability' },
+      { id: 'bc-fulfil-core', source: 'bc-fulfil', target: 'bc-core', label: 'enabled by', direction: 'outbound', protocol: 'Custom', frequency: 'real-time', dataFormat: 'n/a', description: 'Core operations platform realises fulfilment capability' },
+      { id: 'bc-channel-core', source: 'bc-channel', target: 'bc-core', label: 'customer & order data', direction: 'bidirectional', protocol: 'REST API', frequency: 'near-real-time', dataFormat: 'JSON', description: 'Business context maps into enabling integration' },
+    ],
+    drawings: [
+      { id: 'bc-business-band', type: 'rectangle', points: [{ x: 40, y: 40 }, { x: 900, y: 450 }], color: '#7c3aed', strokeWidth: 2, fill: '#7c3aed0d' },
+      { id: 'bc-business-title', type: 'text', points: [{ x: 58, y: 60 }], color: '#6d28d9', strokeWidth: 1, text: 'Business context — stakeholders, outcome, value stream, capabilities', fontSize: 14 },
+      { id: 'bc-app-band', type: 'rectangle', points: [{ x: 925, y: 40 }, { x: 1190, y: 450 }], color: '#2563eb', strokeWidth: 2, fill: '#2563eb0d' },
+      { id: 'bc-app-title', type: 'text', points: [{ x: 943, y: 60 }], color: '#1d4ed8', strokeWidth: 1, text: 'Enabling applications', fontSize: 14 },
+    ],
+  })
+}
+
 function createSolutionArchitecture(): ArchitectureDocument {
   return stamp({
     metadata: {
@@ -2116,6 +2153,22 @@ export const ARCHITECTURE_TEMPLATES: ArchitectureTemplate[] = [
     hasSampleDesign: true,
     sampleLabel: 'Full layered EA portfolio sample',
     create: createEnterpriseArchitecture,
+  },
+  {
+    id: 'business-context',
+    name: 'Business Architecture Context',
+    category: 'Architecture Style',
+    description:
+      'Business-first context linking stakeholders and strategic outcomes to value streams, capabilities, and enabling applications.',
+    highlights: [
+      'Stakeholders · outcome · value stream',
+      'Customer & fulfilment capabilities',
+      'Enabling channels, CRM, and core operations',
+    ],
+    icon: '◫',
+    hasSampleDesign: true,
+    sampleLabel: 'Business-to-application context sample',
+    create: createBusinessArchitectureContext,
   },
   {
     id: 'solution',

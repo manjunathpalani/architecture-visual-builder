@@ -97,16 +97,21 @@ export function WorkItemBrowserModal({ initialProvider, onClose, onSelect }: Wor
   }, [project, provider, projects.length])
 
   return (
-    <div className="repo-browser-overlay">
+    <div className="repo-browser-overlay" onClick={(event) => event.stopPropagation()}>
       <div className="repo-browser work-item-browser">
         <div className="repo-browser-header">
           <div>
             <h2>Link work item</h2>
             <p>Search Jira issues or Azure DevOps work items and attach them to this component.</p>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
-            <X size={18} />
-          </button>
+          <div className="dialog-header-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>
+              Back
+            </button>
+            <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="repo-browser-providers">

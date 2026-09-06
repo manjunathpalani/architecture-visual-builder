@@ -28,6 +28,8 @@ export interface IntegrationNodeData extends Record<string, unknown> {
   isFlowFocus?: boolean
   /** Runtime: node sits on an end-to-end path through the selection */
   isFlowPath?: boolean
+  /** Runtime: show connection ports (touch points) on this node */
+  showTouchPoints?: boolean
   isStateContext?: boolean
 }
 
@@ -180,7 +182,7 @@ export function flowToDocument(
     sourceHandle: edge.sourceHandle ?? undefined,
     targetHandle: edge.targetHandle ?? undefined,
     label: edge.data?.label ?? String(edge.label ?? 'Integration'),
-    direction: edge.data?.direction ?? 'bidirectional',
+    direction: edge.data?.direction ?? 'outbound',
     protocol: edge.data?.protocol ?? 'REST API',
     frequency: edge.data?.frequency ?? 'real-time',
     dataFormat: edge.data?.dataFormat ?? 'JSON',

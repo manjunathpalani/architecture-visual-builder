@@ -2,19 +2,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ReactFlowProvider, type Edge, type Node } from '@xyflow/react'
 import {
   Braces,
+  ClipboardPaste,
   Cloud,
+  Copy,
+  CopyPlus,
+  Database,
   Download,
   FileDown,
+  FileImage,
   FileJson,
   FileText,
+  ImageDown,
   FolderGit2,
-  FolderOpen,
   History,
   LayoutGrid,
   Plus,
   Presentation,
   Settings,
   Scale,
+  Scissors,
   Sparkles,
   Ticket,
   Upload,
@@ -27,9 +33,19 @@ import { CloudBrowserModal } from './components/CloudBrowserModal'
 import { writeCloudSelection } from './utils/cloud/writeSelection'
 import { RepoBrowserModal } from './components/RepoBrowserModal'
 import { SwaggerInjectorModal } from './components/SwaggerInjectorModal'
+import { SaasMetadataModal } from './components/SaasMetadataModal'
 import { AiDiagramModal } from './components/AiDiagramModal'
 import { AiAnalysisModal } from './components/AiAnalysisModal'
 import { AuditTrailPanel } from './components/AuditTrailPanel'
+import { DialogLayer } from './components/DialogLayer'
+import {
+  loadDialogStack,
+  popDialog,
+  pushDialog as pushDialogId,
+  removeDialog,
+  saveDialogStack,
+  type DialogId,
+} from './utils/dialogStack'
 
 import { isAzureDevOpsConnected, isGitHubConnected } from './utils/gitCredentials'
 
@@ -47,17 +63,21 @@ import { createProjectTab, type ProjectTab } from './types/project'
 import {
   addSystemsInView,
   addTemplatedSubDiagram,
+  findSystemAtPath,
   deleteIntegrationInView,
   removeSubTab,
   deleteSystemInView,
   ensureSubDiagram,
   getDiagramView,
   listSubTabs,
+  renameDrillPath,
+  renameSystemAtPath,
   updateIntegrationInView,
   updateSystemInView,
 } from './utils/diagramNavigation'
 import { ComponentPalette } from './components/ComponentPalette'
 import { DiagramBreadcrumb } from './components/DiagramBreadcrumb'
+import { DiagramPageTitle } from './components/DiagramPageTitle'
 import { DrawModeControls } from './components/DrawModeControls'
 import { AppMenuBar, type AppMenuGroup } from './components/AppMenuBar'
 import { IntegrationCanvas, type IntegrationCanvasHandle } from './components/IntegrationCanvas'
@@ -75,7 +95,13 @@ import {
   type ArchitectureTemplateId,
 } from './data/templates'
 import { mergeGeneratedIntoView, type AiPlacement } from './utils/aiDiagram'
+import { applySaasImport, type SaasImportPayload } from './utils/saas/mapToDiagram'
 import { applyAudit, type AuditExtras } from './utils/auditLog'
+import {
+  architectureFileSlug,
+  downloadDataUrl,
+  type DiagramImageFormat,
+} from './utils/captureDiagram'
 import { countSavedKeys } from './utils/aiProviders'
 import {
   exitElementFullscreen,
@@ -106,24 +132,20 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(INITIAL_WORKSPACE.activeTabId)
   const [selectedNode, setSelectedNode] = useState<Node<IntegrationNodeData> | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge<IntegrationEdgeData> | null>(null)
-  const [showJsonPanel, setShowJsonPanel] = useState(false)
+  const [dialogStack, setDialogStack] = useState<DialogId[]>(() => loadDialogStack())
   const [jsonError, setJsonError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [showCodeLinks, setShowCodeLinks] = useState(false)
-  const [showWorkItems, setShowWorkItems] = useState(false)
-  const [showAuditTrail, setShowAuditTrail] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('ai')
-  const [repoBrowserMode, setRepoBrowserMode] = useState<'pull' | 'push' | null>(null)
-  const [cloudBrowserMode, setCloudBrowserMode] = useState<'open' | 'save' | null>(null)
+  const [repoBrowserMode, setRepoBrowserMode] = useState<'pull' | 'push' | null>(() =>
+    loadDialogStack().includes('repo') ? 'pull' : null,
+  )
+  const [cloudBrowserMode, setCloudBrowserMode] = useState<'open' | 'save' | null>(() =>
+    loadDialogStack().includes('cloud') ? 'open' : null,
+  )
   const [gitMessage, setGitMessage] = useState<string | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [templatePickerMode, setTemplatePickerMode] = useState<'project' | 'sub-tab'>('project')
-  const [showSwaggerInjector, setShowSwaggerInjector] = useState(false)
-  const [showAiDiagram, setShowAiDiagram] = useState(false)
-  const [aiChatMounted, setAiChatMounted] = useState(false)
-  const [showAiAnalysis, setShowAiAnalysis] = useState(false)
+  const [aiChatMounted, setAiChatMounted] = useState(() => loadDialogStack().includes('aiDiagram'))
   const [analysisFocus, setAnalysisFocus] = useState<string | undefined>(undefined)
 
   const [exporting, setExporting] = useState(false)
@@ -144,6 +166,34 @@ function App() {
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
+  const dialogStackRef = useRef(dialogStack)
+  dialogStackRef.current = dialogStack
+
+  const isDialogOpen = useCallback((id: DialogId) => dialogStack.includes(id), [dialogStack])
+
+  const openDialog = useCallback((id: DialogId) => {
+    setDialogStack((stack) => {
+      const next = pushDialogId(stack, id)
+      saveDialogStack(next)
+      return next
+    })
+  }, [])
+
+  const closeDialog = useCallback((id: DialogId) => {
+    setDialogStack((stack) => {
+      const next = removeDialog(stack, id)
+      saveDialogStack(next)
+      return next
+    })
+  }, [])
+
+  const closeTopDialog = useCallback(() => {
+    setDialogStack((stack) => {
+      const next = popDialog(stack)
+      saveDialogStack(next)
+      return next
+    })
+  }, [])
 
   const gitConnected = isGitHubConnected() || isAzureDevOpsConnected()
 
@@ -237,30 +287,94 @@ function App() {
     clearSelection()
   }
 
+  const handleRenameTab = (id: string, name: string) => {
+    setTabs((prev) =>
+      prev.map((tab) => {
+        if (tab.id !== id) return tab
+        const next = {
+          ...tab.document,
+          metadata: { ...tab.document.metadata, name },
+        }
+        return {
+          ...tab,
+          document: applyAudit(tab.document, next, {
+            kind: 'update',
+            summary: `Renamed project to “${name}”`,
+          }),
+        }
+      }),
+    )
+  }
+
+  const handleRenameSubTab = (
+    tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub'; name: string },
+    name: string,
+  ) => {
+    if (tab.kind === 'overview') {
+      handleRenameTab(activeTabId, name)
+      return
+    }
+    updateActiveTab((current) => {
+      const nextDoc = renameSystemAtPath(current.document, tab.path, name)
+      return {
+        ...current,
+        document: applyAudit(current.document, nextDoc, {
+          kind: 'update',
+          summary: `Renamed sub-diagram to “${name}”`,
+        }),
+        drillPath: renameDrillPath(current.drillPath, tab.id, name),
+      }
+    })
+  }
+
+  const handleRenameCurrentPage = (name: string) => {
+    if (drillPath.length === 0) {
+      handleRenameTab(activeTabId, name)
+      return
+    }
+    const segment = drillPath[drillPath.length - 1]
+    handleRenameSubTab(
+      { id: segment.systemId, path: drillPath, kind: 'sub', name: segment.label },
+      name,
+    )
+  }
+
+  const handleRenamePathSegment = (depth: number, name: string) => {
+    if (depth <= 0) {
+      handleRenameTab(activeTabId, name)
+      return
+    }
+    const segment = drillPath[depth - 1]
+    if (!segment) return
+    handleRenameSubTab(
+      { id: segment.systemId, path: drillPath.slice(0, depth), kind: 'sub', name: segment.label },
+      name,
+    )
+  }
+
   const handleNewTab = () => {
     setTemplatePickerMode('project')
-    setShowTemplatePicker(true)
+    openDialog('template')
   }
 
   const handleNewSubTab = () => {
     setTemplatePickerMode('sub-tab')
-    setShowTemplatePicker(true)
+    openDialog('template')
   }
 
   const handleRemoveSubTab = (tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub' }) => {
     if (tab.kind === 'overview') return
     updateActiveTab((current) => {
-      const nextPath = current.drillPath.some((segment) => segment.systemId === tab.id)
-        ? tab.path.slice(0, -1)
-        : current.drillPath
+      const viewingRemoved = current.drillPath.some((segment) => segment.systemId === tab.id)
+      const nextPath = viewingRemoved ? tab.path.slice(0, -1) : current.drillPath
+      const nextDoc = removeSubTab(current.document, tab.path)
       return {
         ...current,
-        document: applyAudit(current.document, removeSubTab(current.document, tab.path), {
+        document: applyAudit(current.document, nextDoc, {
           kind: 'remove',
-          summary: `Removed sub-diagram ${tab.path[tab.path.length - 1]?.label ?? tab.id}`,
+          summary: `Closed sub-tab “${tab.path[tab.path.length - 1]?.label ?? tab.id}”`,
         }),
         drillPath: nextPath,
-        canvasKey: current.canvasKey + 1,
       }
     })
     clearSelection()
@@ -285,7 +399,7 @@ function App() {
           canvasKey: tab.canvasKey + 1,
         }
       })
-      setShowTemplatePicker(false)
+      closeDialog('template')
       clearSelection()
       return
     }
@@ -293,7 +407,7 @@ function App() {
     const newTab = createProjectTab(doc)
     setTabs((prev) => [...prev, newTab])
     setActiveTabId(newTab.id)
-    setShowTemplatePicker(false)
+    closeDialog('template')
     clearSelection()
   }
 
@@ -364,6 +478,25 @@ function App() {
     downloadJson(document)
   }
 
+  const handleExportImage = async (format: DiagramImageFormat) => {
+    setExporting(true)
+    setGitMessage(`Exporting ${format.toUpperCase()}…`)
+    try {
+      const image = await canvasRef.current?.exportImage(format)
+      if (!image) {
+        setGitMessage('Could not capture the diagram as an image')
+        return
+      }
+      const filename = `${architectureFileSlug(document.metadata.name)}.${format}`
+      downloadDataUrl(image.dataUrl, filename)
+      setGitMessage(`Downloaded ${filename}`)
+    } catch (err) {
+      setGitMessage(err instanceof Error ? err.message : 'Image export failed')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const runOfficeExport = async (kind: 'pptx' | 'docx') => {
     setExporting(true)
     setGitMessage(null)
@@ -412,17 +545,17 @@ function App() {
     } catch (err) {
       setGitMessage(err instanceof GitApiError ? err.message : 'Push failed')
     }
-    setRepoBrowserMode(null)
+    closeDialog('repo')
   }
 
   const handleOpenJsonEditor = () => {
     setJsonError(null)
-    setShowJsonPanel(true)
+    openDialog('json')
   }
 
   const handleApplyJson = (json: string) => {
     if (handleImport(json)) {
-      setShowJsonPanel(false)
+      closeDialog('json')
     }
   }
 
@@ -436,7 +569,19 @@ function App() {
         properties: data.properties ? { ...s.properties, ...data.properties } : s.properties,
       })),
     )
-    remountCanvas()
+    setSelectedNode((prev) => {
+      if (!prev || prev.id !== id) return prev
+      return {
+        ...prev,
+        data: {
+          ...prev.data,
+          ...data,
+          properties: data.properties
+            ? { ...prev.data.properties, ...data.properties }
+            : prev.data.properties,
+        },
+      }
+    })
   }
 
   const handleUpdateEdge = (id: string, data: Partial<IntegrationEdgeData>) => {
@@ -463,7 +608,13 @@ function App() {
         adoWorkItemUrl: 'adoWorkItemUrl' in data ? data.adoWorkItemUrl : i.adoWorkItemUrl,
       })),
     )
-    remountCanvas()
+    setSelectedEdge((prev) => {
+      if (!prev || prev.id !== id) return prev
+      return {
+        ...prev,
+        data: { ...(prev.data as IntegrationEdgeData), ...data },
+      }
+    })
   }
 
   const handleDeleteNode = (id: string) => {
@@ -481,6 +632,36 @@ function App() {
   const handleInjectSwaggerSystems = (systems: SystemNode[]) => {
     setDocument((prev) => addSystemsInView(prev, drillPath, systems))
     remountCanvas()
+  }
+
+  const handleSaasImport = (payload: SaasImportPayload) => {
+    updateActiveTab((tab) => {
+      const result = applySaasImport(tab.document, tab.drillPath, payload)
+      let nextDoc = applyAudit(tab.document, result.document, {
+        kind: 'import',
+        summary: payload.summary,
+      })
+      let nextPath = tab.drillPath
+      if (result.drillSystemId) {
+        const label =
+          result.drillLabel || payload.catalog.organizationName || payload.catalog.providerLabel
+        nextDoc = applyAudit(
+          nextDoc,
+          ensureSubDiagram(nextDoc, tab.drillPath, result.drillSystemId),
+          { kind: 'navigate', summary: `Opened sub-diagram for ${label}` },
+        )
+        nextPath = [...tab.drillPath, { systemId: result.drillSystemId, label }]
+      }
+      return {
+        ...tab,
+        document: nextDoc,
+        drillPath: nextPath,
+        canvasKey: tab.canvasKey + 1,
+      }
+    })
+    closeDialog('saas')
+    setGitMessage(payload.summary)
+    clearSelection()
   }
 
   const toggleMenus = useCallback(() => {
@@ -506,6 +687,11 @@ function App() {
     saveMenusHidden(menusHidden)
   }, [menusHidden])
 
+  useEffect(() => {
+    if (!dialogStack.includes('repo')) setRepoBrowserMode(null)
+    if (!dialogStack.includes('cloud')) setCloudBrowserMode(null)
+  }, [dialogStack])
+
   const flushAutosave = useCallback(() => {
     const fingerprint = autosaveFingerprint(tabsRef.current, activeTabIdRef.current)
     if (fingerprint === lastAutosaveJson.current) {
@@ -527,7 +713,6 @@ function App() {
       skipFirstAutosave.current = false
       return
     }
-    setAutosaveStatus('saving')
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current)
     autosaveTimer.current = window.setTimeout(() => {
       flushAutosave()
@@ -581,14 +766,21 @@ function App() {
         void toggleFullscreen()
         return
       }
-      if (event.key === 'Escape' && menusHidden && !isElementFullscreen(appRef.current)) {
-        autoHidMenusRef.current = false
-        setMenusHidden(false)
+      if (event.key === 'Escape') {
+        if (dialogStackRef.current.length > 0) {
+          event.preventDefault()
+          closeTopDialog()
+          return
+        }
+        if (menusHidden && !isElementFullscreen(appRef.current)) {
+          autoHidMenusRef.current = false
+          setMenusHidden(false)
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [menusHidden, toggleFullscreen, toggleMenus])
+  }, [closeTopDialog, menusHidden, toggleFullscreen, toggleMenus])
 
   const handleAiGenerate = (generated: ArchitectureDocument, placement: AiPlacement) => {
     if (placement === 'new-tab') {
@@ -642,6 +834,22 @@ function App() {
             onSelect: handleExport,
           },
           {
+            id: 'export-png',
+            label: 'Export PNG',
+            hint: 'Diagram as a picture',
+            icon: ImageDown,
+            disabled: exporting,
+            onSelect: () => void handleExportImage('png'),
+          },
+          {
+            id: 'export-svg',
+            label: 'Export SVG',
+            hint: 'Vector image of the diagram',
+            icon: FileImage,
+            disabled: exporting,
+            onSelect: () => void handleExportImage('svg'),
+          },
+          {
             id: 'export-pptx',
             label: 'Export PowerPoint',
             hint: 'Diagram plus spoken briefing',
@@ -660,11 +868,49 @@ function App() {
         ],
       },
       {
+        id: 'edit',
+        label: 'Edit',
+        items: [
+          {
+            id: 'cut',
+            label: 'Cut',
+            shortcut: 'Ctrl+X',
+            hint: 'Remove selection and copy it',
+            icon: Scissors,
+            onSelect: () => void canvasRef.current?.cutSelection(),
+          },
+          {
+            id: 'copy',
+            label: 'Copy',
+            shortcut: 'Ctrl+C',
+            hint: 'Copy selected components',
+            icon: Copy,
+            onSelect: () => void canvasRef.current?.copySelection(),
+          },
+          {
+            id: 'paste',
+            label: 'Paste',
+            shortcut: 'Ctrl+V',
+            hint: 'Paste copied components',
+            icon: ClipboardPaste,
+            onSelect: () => void canvasRef.current?.pasteClipboard(),
+          },
+          {
+            id: 'duplicate',
+            label: 'Duplicate',
+            shortcut: 'Ctrl+D',
+            hint: 'Copy and paste in place',
+            icon: CopyPlus,
+            onSelect: () => void canvasRef.current?.duplicateSelection(),
+          },
+        ],
+      },
+      {
         id: 'cloud',
         label: 'Cloud & Git',
         items: [
-          { id: 'cloud-open', label: 'Open from cloud…', hint: 'OneDrive, SharePoint, Google, iCloud', icon: Cloud, onSelect: () => setCloudBrowserMode('open') },
-          { id: 'cloud-save', label: 'Save to cloud…', hint: 'Write this project as JSON', icon: Cloud, onSelect: () => setCloudBrowserMode('save') },
+          { id: 'cloud-open', label: 'Open from cloud…', hint: 'OneDrive, SharePoint, Google, iCloud', icon: Cloud, onSelect: () => { setCloudBrowserMode('open'); openDialog('cloud') } },
+          { id: 'cloud-save', label: 'Save to cloud…', hint: 'Write this project as JSON', icon: Cloud, onSelect: () => { setCloudBrowserMode('save'); openDialog('cloud') } },
           { id: 'sep-git', type: 'separator' },
           {
             id: 'git-pull',
@@ -672,7 +918,7 @@ function App() {
             hint: gitConnected ? 'GitHub or Azure DevOps' : 'Connect Git in Settings first',
             icon: Download,
             disabled: !gitConnected,
-            onSelect: () => setRepoBrowserMode('pull'),
+            onSelect: () => { setRepoBrowserMode('pull'); openDialog('repo') },
           },
           {
             id: 'git-push',
@@ -680,7 +926,7 @@ function App() {
             hint: gitConnected ? 'GitHub or Azure DevOps' : 'Connect Git in Settings first',
             icon: UploadCloud,
             disabled: !gitConnected,
-            onSelect: () => setRepoBrowserMode('push'),
+            onSelect: () => { setRepoBrowserMode('push'); openDialog('repo') },
           },
         ],
       },
@@ -695,7 +941,7 @@ function App() {
             icon: Sparkles,
             onSelect: () => {
               setAiChatMounted(true)
-              setShowAiDiagram(true)
+              openDialog('aiDiagram')
             },
           },
           {
@@ -705,7 +951,7 @@ function App() {
             icon: Scale,
             onSelect: () => {
               setAnalysisFocus(undefined)
-              setShowAiAnalysis(true)
+              openDialog('aiAnalysis')
             },
           },
         ],
@@ -714,27 +960,34 @@ function App() {
         id: 'tools',
         label: 'Tools',
         items: [
-          { id: 'swagger', label: 'Inject Swagger…', hint: 'Add APIs from an OpenAPI spec', icon: Braces, onSelect: () => setShowSwaggerInjector(true) },
+          { id: 'swagger', label: 'Inject Swagger…', hint: 'Add APIs from an OpenAPI spec', icon: Braces, onSelect: () => openDialog('swagger') },
+          {
+            id: 'saas-metadata',
+            label: 'Read SaaS metadata…',
+            hint: 'Dynamics 365, Dataverse, Salesforce',
+            icon: Database,
+            onSelect: () => openDialog('saas'),
+          },
           {
             id: 'code-links',
             label: linkedCount > 0 ? `Code links (${linkedCount})` : 'Code links',
             hint: 'Components linked to repositories',
             icon: FolderGit2,
-            onSelect: () => setShowCodeLinks(true),
+            onSelect: () => openDialog('codeLinks'),
           },
           {
             id: 'work-items',
             label: workItemCount > 0 ? `Work items (${workItemCount})` : 'Work items',
             hint: 'Jira and Azure DevOps links',
             icon: Ticket,
-            onSelect: () => setShowWorkItems(true),
+            onSelect: () => openDialog('workItems'),
           },
           {
             id: 'audit',
             label: (document.audit?.length ?? 0) > 0 ? `Audit trail (${document.audit?.length})` : 'Audit trail',
             hint: 'History of every project change',
             icon: History,
-            onSelect: () => setShowAuditTrail(true),
+            onSelect: () => openDialog('audit'),
           },
         ],
       },
@@ -767,7 +1020,7 @@ function App() {
             icon: Settings,
             onSelect: () => {
               setSettingsTab('ai')
-              setShowSettings(true)
+              openDialog('settings')
             },
           },
           {
@@ -777,7 +1030,7 @@ function App() {
             icon: UploadCloud,
             onSelect: () => {
               setSettingsTab('git')
-              setShowSettings(true)
+              openDialog('settings')
             },
           },
           {
@@ -787,7 +1040,7 @@ function App() {
             icon: Ticket,
             onSelect: () => {
               setSettingsTab('jira')
-              setShowSettings(true)
+              openDialog('settings')
             },
           },
           {
@@ -797,7 +1050,7 @@ function App() {
             icon: Cloud,
             onSelect: () => {
               setSettingsTab('cloud')
-              setShowSettings(true)
+              openDialog('settings')
             },
           },
         ],
@@ -807,6 +1060,7 @@ function App() {
       exporting,
       gitConnected,
       handleExport,
+      handleExportImage,
       handleNewTab,
       handleOpenJsonEditor,
       isFullscreen,
@@ -818,6 +1072,7 @@ function App() {
       toggleFullscreen,
       toggleMenus,
       workItemCount,
+      openDialog,
     ],
   )
 
@@ -861,6 +1116,7 @@ function App() {
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onNewTab={handleNewTab}
+        onRenameTab={handleRenameTab}
       />
       <SubTabBar
         tabs={listSubTabs(document, drillPath)}
@@ -871,48 +1127,46 @@ function App() {
         }}
         onNewFromTemplate={handleNewSubTab}
         onRemove={handleRemoveSubTab}
+        onRename={handleRenameSubTab}
       />
 
       <div className="workspace">
         <ComponentPalette onDragStart={handleDragStart} />
         <main className="canvas-area">
-          <div className="doc-title">
-            <FolderOpen size={16} />
-            <input
-              className="doc-name-input"
-              value={document.metadata.name}
-              onChange={(e) =>
-                setDocument((prev) => ({
-                  ...prev,
-                  metadata: { ...prev.metadata, name: e.target.value },
-                }))
-              }
-            />
-            <span className="doc-stats">
-              {diagramView.systems.length} systems · {diagramView.integrations.length} integrations
-              {drillPath.length > 0 && ' (detail)'}
-            </span>
-            <span
-              className={`autosave-status autosave-${autosaveStatus}`}
-              title={
-                autosaveStatus === 'error'
-                  ? 'Could not autosave (browser storage may be full)'
-                  : autosaveAt
-                    ? `Last autosave ${new Date(autosaveAt).toLocaleString()}`
-                    : 'Changes save automatically in this browser'
-              }
-            >
-              {autosaveStatus === 'saving' && 'Saving…'}
-              {autosaveStatus === 'saved' && `Autosaved${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`}
-              {autosaveStatus === 'error' && 'Autosave failed'}
-              {autosaveStatus === 'idle' && 'Autosave on'}
-            </span>
-          </div>
+          <DiagramPageTitle
+            name={
+              drillPath.length === 0
+                ? document.metadata.name
+                : drillPath[drillPath.length - 1]?.label ?? document.metadata.name
+            }
+            isRoot={drillPath.length === 0}
+            statsLabel={`${diagramView.systems.length} systems · ${diagramView.integrations.length} integrations${drillPath.length > 0 ? ' (detail)' : ''}`}
+            onRename={handleRenameCurrentPage}
+            onGoRoot={() => handleNavigateDiagram(0)}
+            autosave={
+              <span
+                className={`autosave-status autosave-${autosaveStatus}`}
+                title={
+                  autosaveStatus === 'error'
+                    ? 'Could not autosave (browser storage may be full)'
+                    : autosaveAt
+                      ? `Last autosave ${new Date(autosaveAt).toLocaleString()}`
+                      : 'Changes save automatically in this browser'
+                }
+              >
+                {autosaveStatus === 'saving' && 'Saving…'}
+                {autosaveStatus === 'saved' && `Autosaved${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`}
+                {autosaveStatus === 'error' && 'Autosave failed'}
+                {autosaveStatus === 'idle' && 'Autosave on'}
+              </span>
+            }
+          />
           <DiagramBreadcrumb
             documentName={document.metadata.name}
             drillPath={drillPath}
             levelLabel={diagramView.parentLabel}
             onNavigate={handleNavigateDiagram}
+            onRename={handleRenamePathSegment}
           />
           <div className="canvas-flow">
             <ReactFlowProvider>
@@ -935,7 +1189,7 @@ function App() {
               onToggleMenus={toggleMenus}
               onOpenAi={() => {
                 setAiChatMounted(true)
-                setShowAiDiagram(true)
+                openDialog('aiDiagram')
               }}
               selectionKey={selectedNode?.id ?? selectedEdge?.id ?? null}
               properties={
@@ -951,8 +1205,9 @@ function App() {
                   onDrillInto={handleDrillInto}
                   onAnalyzeCapability={(label) => {
                     setAnalysisFocus(label)
-                    setShowAiAnalysis(true)
+                    openDialog('aiAnalysis')
                   }}
+                  onReadSaasMetadata={() => openDialog('saas')}
                 />
               }
             />
@@ -961,122 +1216,164 @@ function App() {
         </main>
       </div>
 
-      {showJsonPanel && (
-        <JsonPanel
-          json={serializeArchitecture(document)}
-          error={jsonError}
-          onApply={handleApplyJson}
-          onClose={() => setShowJsonPanel(false)}
-        />
+      {isDialogOpen('json') && (
+        <DialogLayer id="json" stack={dialogStack} onClose={() => closeDialog('json')}>
+          <JsonPanel
+            json={serializeArchitecture(document)}
+            error={jsonError}
+            onApply={handleApplyJson}
+            onClose={() => closeDialog('json')}
+          />
+        </DialogLayer>
       )}
 
-      {showCodeLinks && (
-        <CodeLinksPanel
-          systems={document.systems}
-          onClose={() => setShowCodeLinks(false)}
-          onSelectSystem={(id) => {
-            setShowCodeLinks(false)
-            setFocusNodeId(id)
-          }}
-        />
+      {isDialogOpen('codeLinks') && (
+        <DialogLayer id="codeLinks" stack={dialogStack} onClose={() => closeDialog('codeLinks')}>
+          <CodeLinksPanel
+            systems={document.systems}
+            onClose={() => closeDialog('codeLinks')}
+            onSelectSystem={(id) => {
+              closeDialog('codeLinks')
+              setFocusNodeId(id)
+            }}
+          />
+        </DialogLayer>
       )}
 
-      {showWorkItems && (
-        <WorkItemsPanel
-          document={document}
-          onClose={() => setShowWorkItems(false)}
-          onSelectSystem={(id) => {
-            setShowWorkItems(false)
-            setFocusNodeId(id)
-          }}
-        />
+      {isDialogOpen('workItems') && (
+        <DialogLayer id="workItems" stack={dialogStack} onClose={() => closeDialog('workItems')}>
+          <WorkItemsPanel
+            document={document}
+            onClose={() => closeDialog('workItems')}
+            onSelectSystem={(id) => {
+              closeDialog('workItems')
+              setFocusNodeId(id)
+            }}
+          />
+        </DialogLayer>
       )}
 
-      {showAuditTrail && (
-        <AuditTrailPanel
-          document={document}
-          onClose={() => setShowAuditTrail(false)}
-          onClear={handleClearAudit}
-        />
+      {isDialogOpen('audit') && (
+        <DialogLayer id="audit" stack={dialogStack} onClose={() => closeDialog('audit')}>
+          <AuditTrailPanel
+            document={document}
+            onClose={() => closeDialog('audit')}
+            onClear={handleClearAudit}
+          />
+        </DialogLayer>
       )}
 
-      {showSettings && (
-        <SettingsPanel
-          tab={settingsTab}
-          onTabChange={setSettingsTab}
-          onClose={() => setShowSettings(false)}
-        />
+      {isDialogOpen('settings') && (
+        <DialogLayer id="settings" stack={dialogStack} onClose={() => closeDialog('settings')}>
+          <SettingsPanel
+            tab={settingsTab}
+            onTabChange={setSettingsTab}
+            onClose={() => closeDialog('settings')}
+          />
+        </DialogLayer>
       )}
 
-      {repoBrowserMode && (
-        <RepoBrowserModal
-          mode={repoBrowserMode}
-          onClose={() => setRepoBrowserMode(null)}
-          onPullJson={(content) => handleImport(content, true)}
-          onPushPath={handlePushToRepo}
-        />
+      {isDialogOpen('repo') && repoBrowserMode && (
+        <DialogLayer id="repo" stack={dialogStack} onClose={() => closeDialog('repo')}>
+          <RepoBrowserModal
+            mode={repoBrowserMode}
+            onClose={() => closeDialog('repo')}
+            onPullJson={(content) => handleImport(content, true)}
+            onPushPath={handlePushToRepo}
+          />
+        </DialogLayer>
       )}
 
-      {cloudBrowserMode && (
-        <CloudBrowserModal
-          mode={cloudBrowserMode}
-          suggestedName={`${document.metadata.name.replace(/\s+/g, '-').toLowerCase()}.json`}
-          onClose={() => setCloudBrowserMode(null)}
-          onOpen={(content, selection) => {
-            handleImport(content, true)
-            setCloudBrowserMode(null)
-            setGitMessage(`Opened ${selection.fileName} from ${selection.store}`)
-          }}
-          onSave={async (selection) => {
-            await writeCloudSelection(selection, serializeArchitecture(document))
-            setCloudBrowserMode(null)
-            setGitMessage(`Saved ${selection.fileName} to ${selection.store}`)
-          }}
-        />
+      {isDialogOpen('cloud') && cloudBrowserMode && (
+        <DialogLayer id="cloud" stack={dialogStack} onClose={() => closeDialog('cloud')}>
+          <CloudBrowserModal
+            mode={cloudBrowserMode}
+            suggestedName={`${document.metadata.name.replace(/\s+/g, '-').toLowerCase()}.json`}
+            onClose={() => closeDialog('cloud')}
+            onOpen={(content, selection) => {
+              handleImport(content, true)
+              closeDialog('cloud')
+              setGitMessage(`Opened ${selection.fileName} from ${selection.store}`)
+            }}
+            onSave={async (selection) => {
+              await writeCloudSelection(selection, serializeArchitecture(document))
+              closeDialog('cloud')
+              setGitMessage(`Saved ${selection.fileName} to ${selection.store}`)
+            }}
+          />
+        </DialogLayer>
       )}
 
-      {showTemplatePicker && (
-        <TemplatePicker
-          mode={templatePickerMode}
-          onSelect={handleSelectTemplate}
-          onClose={() => setShowTemplatePicker(false)}
-        />
+      {isDialogOpen('template') && (
+        <DialogLayer id="template" stack={dialogStack} onClose={() => closeDialog('template')}>
+          <TemplatePicker
+            mode={templatePickerMode}
+            onSelect={handleSelectTemplate}
+            onClose={() => closeDialog('template')}
+          />
+        </DialogLayer>
       )}
 
-      {showSwaggerInjector && (
-        <SwaggerInjectorModal
-          mode="canvas"
-          existingSystems={diagramView.systems}
-          onInjectSystems={handleInjectSwaggerSystems}
-          onClose={() => setShowSwaggerInjector(false)}
-        />
+      {isDialogOpen('swagger') && (
+        <DialogLayer id="swagger" stack={dialogStack} onClose={() => closeDialog('swagger')}>
+          <SwaggerInjectorModal
+            mode="canvas"
+            existingSystems={diagramView.systems}
+            onInjectSystems={handleInjectSwaggerSystems}
+            onClose={() => closeDialog('swagger')}
+          />
+        </DialogLayer>
       )}
 
-      {aiChatMounted && (
-        <AiDiagramModal
-          open={showAiDiagram}
-          currentDocument={document}
-          onGenerate={handleAiGenerate}
-          onManageKeys={() => {
-            setShowAiDiagram(false)
-            setSettingsTab('ai')
-            setShowSettings(true)
-          }}
-          onClose={() => setShowAiDiagram(false)}
-        />
+      {isDialogOpen('saas') && (
+        <DialogLayer id="saas" stack={dialogStack} onClose={() => closeDialog('saas')}>
+          <SaasMetadataModal
+            targetSystemId={
+              selectedNode && findSystemAtPath(document, drillPath, selectedNode.id)?.type === 'saas'
+                ? selectedNode.id
+                : selectedNode && findSystemAtPath(document, drillPath, selectedNode.id)?.type === 'powerplatform'
+                  ? selectedNode.id
+                  : undefined
+            }
+            targetSystemLabel={
+              selectedNode &&
+              (selectedNode.data.systemType === 'saas' || selectedNode.data.systemType === 'powerplatform')
+                ? selectedNode.data.label
+                : undefined
+            }
+            onImport={handleSaasImport}
+            onClose={() => closeDialog('saas')}
+          />
+        </DialogLayer>
       )}
 
-      {showAiAnalysis && (
-        <AiAnalysisModal
-          document={document}
-          focusLabel={analysisFocus}
-          onManageKeys={() => {
-            setShowAiAnalysis(false)
-            setSettingsTab('ai')
-            setShowSettings(true)
-          }}
-          onClose={() => setShowAiAnalysis(false)}
-        />
+      {aiChatMounted && isDialogOpen('aiDiagram') && (
+        <DialogLayer id="aiDiagram" stack={dialogStack} onClose={() => closeDialog('aiDiagram')}>
+          <AiDiagramModal
+            open
+            currentDocument={document}
+            onGenerate={handleAiGenerate}
+            onManageKeys={() => {
+              setSettingsTab('ai')
+              openDialog('settings')
+            }}
+            onClose={() => closeDialog('aiDiagram')}
+          />
+        </DialogLayer>
+      )}
+
+      {isDialogOpen('aiAnalysis') && (
+        <DialogLayer id="aiAnalysis" stack={dialogStack} onClose={() => closeDialog('aiAnalysis')}>
+          <AiAnalysisModal
+            document={document}
+            focusLabel={analysisFocus}
+            onManageKeys={() => {
+              setSettingsTab('ai')
+              openDialog('settings')
+            }}
+            onClose={() => closeDialog('aiAnalysis')}
+          />
+        </DialogLayer>
       )}
 
       {gitMessage && (

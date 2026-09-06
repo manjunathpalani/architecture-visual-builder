@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, Cloud, FolderOpen, HardDrive, Loader2 } from 'lucide-react'
 import {
   defaultGoogleClientId,
@@ -16,14 +16,25 @@ import {
   setMicrosoftClientId,
   setMicrosoftTokens,
 } from '../utils/cloud/cloudCredentials'
-import { CloudApiError, signInWithGoogle, signInWithMicrosoft } from '../utils/cloud/oauth'
+import {
+  CloudApiError,
+  openSignInWindow,
+  peekPreparedLoginUrl,
+  prefetchGoogleLogin,
+  prefetchMicrosoftLogin,
+  signInWithGoogle,
+  signInWithMicrosoft,
+} from '../utils/cloud/oauth'
+import { loadOAuthAppConfig } from '../utils/cloud/oauthConfig'
 import { testMicrosoftConnection } from '../utils/cloud/microsoftGraph'
 import { testGoogleConnection } from '../utils/cloud/googleCloud'
 import { canUseFolderPicker, connectICloudFolder, disconnectICloudFolder } from '../utils/cloud/icloudFolder'
 
 export function CloudStorageSection() {
-  const [msClientId, setMsClientId] = useState(defaultMicrosoftClientId)
-  const [googleClientId, setGoogleId] = useState(defaultGoogleClientId)
+  const [msClientId, setMsClientId] = useState(defaultMicrosoftClientId())
+  const [googleClientId, setGoogleClientIdState] = useState(defaultGoogleClientId())
+  const [envMs, setEnvMs] = useState('')
+  const [envGoogle, setEnvGoogle] = useState('')
   const [bucket, setBucket] = useState(getGoogleBucket())
   const [includeGcs, setIncludeGcs] = useState(Boolean(getGoogleBucket()))
   const [msStatus, setMsStatus] = useState<string | null>(null)
@@ -33,37 +44,77 @@ export function CloudStorageSection() {
   const [googleLoading, setGoogleLoading] = useState(false)
   const [icloudLoading, setIcloudLoading] = useState(false)
 
-  const connectMicrosoft = async () => {
-    setMsLoading(true)
-    setMsStatus(null)
-    setMicrosoftClientId(msClientId)
-    try {
-      await signInWithMicrosoft(msClientId)
-      const { name, email } = await testMicrosoftConnection()
-      setMsStatus(`Connected as ${name}${email ? ` (${email})` : ''}`)
-    } catch (err) {
-      setMicrosoftTokens(null)
-      setMsStatus(err instanceof CloudApiError ? err.message : 'Microsoft sign-in failed')
-    } finally {
-      setMsLoading(false)
+  const showMsClientField = !envMs
+  const showGoogleClientField = !envGoogle
+
+  useEffect(() => {
+    void loadOAuthAppConfig().then((config) => {
+      setEnvMs(config.microsoftClientId)
+      setEnvGoogle(config.googleClientId)
+      if (config.microsoftClientId) setMsClientId(config.microsoftClientId)
+      if (config.googleClientId) setGoogleClientIdState(config.googleClientId)
+    })
+  }, [])
+
+  useEffect(() => {
+    const id = (envMs || msClientId).trim()
+    if (id) void prefetchMicrosoftLogin(id)
+  }, [envMs, msClientId])
+
+  useEffect(() => {
+    const id = (envGoogle || googleClientId).trim()
+    if (id) void prefetchGoogleLogin(id, includeGcs)
+  }, [envGoogle, googleClientId, includeGcs])
+
+  const connectMicrosoft = () => {
+    const id = (envMs || msClientId).trim()
+    if (!id) {
+      setMsStatus('Add your Azure app (client) ID once. Continue with Microsoft then opens the Microsoft sign-in page.')
+      return
     }
+    setMicrosoftClientId(id)
+    const preparedUrl = peekPreparedLoginUrl('microsoft', id)
+    const popup = openSignInWindow(preparedUrl ?? 'about:blank')
+    setMsLoading(true)
+    setMsStatus(popup ? 'Opening Microsoft sign-in…' : 'Redirecting to Microsoft…')
+    void (async () => {
+      try {
+        await signInWithMicrosoft(id, popup)
+        const { name, email } = await testMicrosoftConnection()
+        setMsStatus(`Connected as ${name}${email ? ` (${email})` : ''}`)
+      } catch (err) {
+        setMicrosoftTokens(null)
+        setMsStatus(err instanceof CloudApiError ? err.message : 'Microsoft sign-in failed')
+      } finally {
+        setMsLoading(false)
+      }
+    })()
   }
 
-  const connectGoogle = async () => {
-    setGoogleLoading(true)
-    setGoogleStatus(null)
-    setGoogleClientId(googleClientId)
-    setGoogleBucket(bucket)
-    try {
-      await signInWithGoogle(googleClientId, includeGcs)
-      const { name, email } = await testGoogleConnection()
-      setGoogleStatus(`Connected as ${name}${email ? ` (${email})` : ''}`)
-    } catch (err) {
-      setGoogleTokens(null)
-      setGoogleStatus(err instanceof CloudApiError ? err.message : 'Google sign-in failed')
-    } finally {
-      setGoogleLoading(false)
+  const connectGoogle = () => {
+    const id = (envGoogle || googleClientId).trim()
+    if (!id) {
+      setGoogleStatus('Add your Google OAuth client ID once. Continue with Google then opens the Google sign-in page.')
+      return
     }
+    setGoogleClientId(id)
+    setGoogleBucket(bucket)
+    const preparedUrl = peekPreparedLoginUrl('google', id)
+    const popup = openSignInWindow(preparedUrl ?? 'about:blank')
+    setGoogleLoading(true)
+    setGoogleStatus(popup ? 'Opening Google sign-in…' : 'Redirecting to Google…')
+    void (async () => {
+      try {
+        await signInWithGoogle(id, includeGcs, popup)
+        const { name, email } = await testGoogleConnection()
+        setGoogleStatus(`Connected as ${name}${email ? ` (${email})` : ''}`)
+      } catch (err) {
+        setGoogleTokens(null)
+        setGoogleStatus(err instanceof CloudApiError ? err.message : 'Google sign-in failed')
+      } finally {
+        setGoogleLoading(false)
+      }
+    })()
   }
 
   const connectICloud = async () => {
@@ -97,22 +148,28 @@ export function CloudStorageSection() {
             )}
           </div>
           <p className="git-int-desc">
-            Sign in with a work, school, or personal Microsoft account for <strong>OneDrive</strong> and{' '}
-            <strong>SharePoint</strong>. Register a SPA app and add redirect{' '}
-            <code>{typeof window !== 'undefined' ? `${window.location.origin}/oauth/callback` : '/oauth/callback'}</code>.
+            Sign in with your Microsoft account to use <strong>OneDrive</strong> and <strong>SharePoint</strong>.
+            {envMs ? ' A Microsoft login window opens — no app ID to type.' : ''}
           </p>
-          <label>
-            Application (client) ID
-            <input
-              placeholder="Azure AD / Entra app ID"
-              value={msClientId}
-              onChange={(e) => setMsClientId(e.target.value)}
-            />
-          </label>
+          {showMsClientField && (
+            <label>
+              Azure app (client) ID — one-time
+              <input
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                value={msClientId}
+                onChange={(event) => {
+                  setMsClientId(event.target.value)
+                  setMicrosoftClientId(event.target.value)
+                }}
+              />
+            </label>
+          )}
           <div className="git-int-actions">
-            <button type="button" className="btn-primary" disabled={!msClientId.trim() || msLoading} onClick={() => void connectMicrosoft()}>
+            <button type="button" className="btn-primary" disabled={msLoading} onClick={connectMicrosoft}>
               {msLoading ? <Loader2 size={14} className="spin" /> : null}
-              Sign in to Microsoft
+              Continue with Microsoft
             </button>
             {isMicrosoftConnected() && (
               <button
@@ -127,7 +184,17 @@ export function CloudStorageSection() {
               </button>
             )}
           </div>
-          {msStatus && <p className={`git-status ${msStatus.includes('Connected') ? 'ok' : 'err'}`}>{msStatus}</p>}
+          {msStatus && (
+            <p className={`git-status ${statusTone(msStatus)}`}>{msStatus}</p>
+          )}
+          {showMsClientField && !isMicrosoftConnected() && (
+            <p className="code-link-hint">
+              This is an Azure app ID, not your password. After it is saved, Continue with Microsoft opens the
+              Microsoft sign-in page (redirect{' '}
+              <code>{typeof window !== 'undefined' ? `${window.location.origin}/oauth/callback` : '/oauth/callback'}</code>
+              ).
+            </p>
+          )}
         </section>
 
         <section className="git-int-card">
@@ -141,17 +208,24 @@ export function CloudStorageSection() {
             )}
           </div>
           <p className="git-int-desc">
-            Sign in with Google for <strong>Google Drive</strong>. Optionally allow <strong>Cloud Storage</strong> buckets.
-            Authorized origin and redirect must be this app URL + <code>/oauth/callback</code>.
+            Sign in with your Google account for <strong>Google Drive</strong>. Optionally allow{' '}
+            <strong>Cloud Storage</strong> buckets.
           </p>
-          <label>
-            OAuth client ID
-            <input
-              placeholder="xxxx.apps.googleusercontent.com"
-              value={googleClientId}
-              onChange={(e) => setGoogleId(e.target.value)}
-            />
-          </label>
+          {showGoogleClientField && (
+            <label>
+              Google OAuth client ID — one-time
+              <input
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="xxxx.apps.googleusercontent.com"
+                value={googleClientId}
+                onChange={(event) => {
+                  setGoogleClientIdState(event.target.value)
+                  setGoogleClientId(event.target.value)
+                }}
+              />
+            </label>
+          )}
           <label className="cloud-check">
             <input type="checkbox" checked={includeGcs} onChange={(e) => setIncludeGcs(e.target.checked)} />
             Also request Google Cloud Storage access
@@ -167,14 +241,9 @@ export function CloudStorageSection() {
             </label>
           )}
           <div className="git-int-actions">
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!googleClientId.trim() || googleLoading}
-              onClick={() => void connectGoogle()}
-            >
+            <button type="button" className="btn-primary" disabled={googleLoading} onClick={connectGoogle}>
               {googleLoading ? <Loader2 size={14} className="spin" /> : null}
-              Sign in with Google
+              Continue with Google
             </button>
             {isGoogleConnected() && (
               <button
@@ -190,7 +259,13 @@ export function CloudStorageSection() {
             )}
           </div>
           {googleStatus && (
-            <p className={`git-status ${googleStatus.includes('Connected') ? 'ok' : 'err'}`}>{googleStatus}</p>
+            <p className={`git-status ${statusTone(googleStatus)}`}>{googleStatus}</p>
+          )}
+          {showGoogleClientField && !isGoogleConnected() && (
+            <p className="code-link-hint">
+              This is a Google Cloud OAuth client ID, not your Google password. After it is saved, Continue with
+              Google opens the Google sign-in page.
+            </p>
           )}
         </section>
 
@@ -237,4 +312,10 @@ export function CloudStorageSection() {
       </div>
     </div>
   )
+}
+
+function statusTone(message: string): string {
+  if (message.includes('Connected')) return 'ok'
+  if (message.startsWith('Opening') || message.startsWith('Redirecting')) return ''
+  return 'err'
 }
