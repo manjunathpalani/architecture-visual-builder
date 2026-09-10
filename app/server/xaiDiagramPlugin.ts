@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
-import { completeAnalysis, completeDiagram, verifyProviderKey, type AiProviderId } from './aiEngines'
+import { completeAnalysis, completeDiagram, completeInstruction, verifyProviderKey, type AiProviderId } from './aiEngines'
 
 const PROVIDERS: Array<{
   id: AiProviderId
@@ -55,6 +55,10 @@ function createHandler(env: Record<string, string>) {
     }
     if (req.method === 'POST' && (url === '/analyze' || url === '/analyze/')) {
       void handleAnalyze(req, res, env)
+      return
+    }
+    if (req.method === 'POST' && (url === '/instruct' || url === '/instruct/')) {
+      void handleInstruct(req, res, env)
       return
     }
     if (req.method === 'POST' && (url === '/verify' || url === '/verify/')) {
@@ -276,6 +280,80 @@ async function handleAnalyze(req: IncomingMessage, res: ServerResponse, env: Rec
     const status = typeof err === 'object' && err && 'status' in err ? Number((err as { status?: number }).status) : 502
     json(res, Number.isFinite(status) && status >= 400 ? status : 502, {
       error: err instanceof Error ? err.message : `${provider.label} analysis failed`,
+    })
+  }
+}
+
+async function handleInstruct(req: IncomingMessage, res: ServerResponse, env: Record<string, string>) {
+  let body: {
+    prompt?: string
+    context?: string
+    provider?: string
+    apiKey?: string
+    model?: string
+    azureEndpoint?: string
+    azureDeployment?: string
+  }
+  try {
+    body = JSON.parse(await readBody(req)) as typeof body
+  } catch {
+    json(res, 400, { error: 'Invalid JSON body' })
+    return
+  }
+
+  const providerId = (body.provider ?? 'spacexai') as AiProviderId
+  const provider = PROVIDERS.find((p) => p.id === providerId)
+  if (!provider || !PROVIDER_IDS.has(providerId)) {
+    json(res, 400, { error: 'Unknown AI engine' })
+    return
+  }
+
+  const context = body.context?.trim() ?? ''
+  if (!context) {
+    json(res, 400, { error: 'Add a component and design context before generating an instruction.' })
+    return
+  }
+  if (context.length > 24000) {
+    json(res, 400, { error: 'Design context is too large to generate in one pass.' })
+    return
+  }
+
+  const prompt = (
+    body.prompt?.trim() ||
+    'Write a self-contained coding-agent instruction for this component.'
+  ).slice(0, 4000)
+
+  const apiKey =
+    envValue(env, provider.envKey) ||
+    (provider.id === 'gemini' ? envValue(env, 'GOOGLE_API_KEY') : '') ||
+    body.apiKey?.trim() ||
+    ''
+  if (!apiKey) {
+    json(res, 401, {
+      error: `No ${provider.label} key configured. Set ${provider.envKey} in app/.env or paste a key in AI Engines.`,
+    })
+    return
+  }
+
+  const model = body.model?.trim() || envValue(env, provider.envModel ?? '') || provider.defaultModel
+  const azureEndpoint = body.azureEndpoint?.trim() || envValue(env, 'AZURE_OPENAI_ENDPOINT')
+  const azureDeployment = body.azureDeployment?.trim() || envValue(env, 'AZURE_OPENAI_DEPLOYMENT')
+
+  try {
+    const text = await completeInstruction({
+      provider: providerId,
+      prompt,
+      context,
+      apiKey,
+      model,
+      azureEndpoint,
+      azureDeployment,
+    })
+    json(res, 200, { text, model, provider: providerId })
+  } catch (err) {
+    const status = typeof err === 'object' && err && 'status' in err ? Number((err as { status?: number }).status) : 502
+    json(res, Number.isFinite(status) && status >= 400 ? status : 502, {
+      error: err instanceof Error ? err.message : `${provider.label} instruction failed`,
     })
   }
 }

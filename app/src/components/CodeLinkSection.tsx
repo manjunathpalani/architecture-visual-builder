@@ -1,4 +1,4 @@
-import { ExternalLink, FolderGit2, Search } from 'lucide-react'
+import { ExternalLink, FolderGit2, Search, FolderOpen } from 'lucide-react'
 import { useState } from 'react'
 import type { SystemProperties } from '../types'
 import {
@@ -11,6 +11,7 @@ import {
 import { isAzureDevOpsConnected, isGitHubConnected } from '../utils/gitCredentials'
 import { RepoBrowserModal } from './RepoBrowserModal'
 import { selectionToProperties } from '../utils/gitProviders/types'
+import { isVsCodeHost, openPathInHost } from '../utils/vscodeHost'
 
 interface CodeLinkSectionProps {
   properties: SystemProperties
@@ -128,6 +129,16 @@ export function CodeLinkSection({ properties, onChange }: CodeLinkSectionProps) 
             <ExternalLink size={14} />
             Open in Git
           </button>
+          {isVsCodeHost() && properties.gitPath?.trim() && (
+            <button
+              type="button"
+              className="btn-secondary code-open-btn"
+              onClick={() => openPathInHost(properties.gitPath ?? '')}
+            >
+              <FolderOpen size={14} />
+              Open in VS Code
+            </button>
+          )}
           <button
             type="button"
             className="btn-reset-color"

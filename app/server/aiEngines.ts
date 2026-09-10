@@ -139,8 +139,28 @@ export async function completeDiagram(request: EngineRequest): Promise<string> {
   }
 }
 
+export const INSTRUCTION_SYSTEM_PROMPT = `You write implementation instructions for a coding agent (Grok, Cursor, Copilot, Claude Code).
+Return markdown only. No JSON, no wrapping code fence around the whole answer, no preamble.
+
+The instruction must be self-contained: an engineer or agent can implement the change without seeing the architecture diagram.
+
+Required sections:
+- Title and one-sentence goal
+- Scope (this component only) and out of scope
+- Context (what the component is, integrations, linked repo/path if any)
+- Concrete implementation steps
+- Files or areas to inspect (use the linked path when present; otherwise guess from the component name and mark guesses)
+- Acceptance checks
+- Constraints (do not touch unrelated services, do not invent secrets)
+
+Be specific to the named component and the feature. Do not invent systems that are not in the context.`
+
 export async function completeAnalysis(request: EngineRequest): Promise<string> {
   return completeDiagram({ ...request, systemPrompt: ANALYSIS_SYSTEM_PROMPT })
+}
+
+export async function completeInstruction(request: EngineRequest): Promise<string> {
+  return completeDiagram({ ...request, systemPrompt: INSTRUCTION_SYSTEM_PROMPT })
 }
 
 export async function verifyProviderKey(request: {

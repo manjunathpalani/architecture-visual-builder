@@ -214,12 +214,51 @@ export interface AuditEvent {
   details: string[]
 }
 
+export type ChangeDesignStatus = 'draft' | 'ready' | 'in-progress' | 'done'
+
+export type ArchitectureChangeKind = 'new' | 'update' | 'retire'
+
+export type ComponentChangeTaskStatus = 'pending' | 'instructed' | 'applying' | 'applied' | 'failed'
+
+/** One component’s work package inside a feature. */
+export interface ComponentChangeTask {
+  id: string
+  systemId: string
+  systemLabel: string
+  /** New component, update to existing, or retire */
+  changeKind: ArchitectureChangeKind
+  /** Architect’s intended change for this component */
+  intent: string
+  /** Agent-ready implementation instruction (generated or hand-written) */
+  instruction?: string
+  instructionGeneratedAt?: string
+  appliedAt?: string
+  status: ComponentChangeTaskStatus
+}
+
+/** Feature definition that turns architecture new/update deltas into agent work. */
+export interface TechnicalChangeDesign {
+  id: string
+  title: string
+  /** What the feature is — source of truth for agent work */
+  definition?: string
+  problem: string
+  proposedChange: string
+  acceptanceCriteria: string
+  notes?: string
+  status: ChangeDesignStatus
+  createdAt: string
+  updatedAt: string
+  tasks: ComponentChangeTask[]
+}
+
 export interface ArchitectureDocument {
   metadata: ArchitectureMetadata
   systems: SystemNode[]
   integrations: Integration[]
   drawings?: DrawingElement[]
   audit?: AuditEvent[]
+  changeDesigns?: TechnicalChangeDesign[]
 }
 
 export interface PaletteItem {

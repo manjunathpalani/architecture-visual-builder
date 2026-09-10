@@ -16,6 +16,8 @@ import {
   createAzureAiLanding,
   createEnterpriseRag,
   createMlOpsPlatform,
+  createMultiProviderAgents,
+  createSdlcAiAgents,
 } from './aiTemplates'
 import sampleArchitecture from './sample-architecture.json'
 
@@ -38,6 +40,8 @@ export type ArchitectureTemplateId =
   | 'ai-rag'
   | 'ai-mlops'
   | 'ai-agents'
+  | 'ai-sdlc'
+  | 'ai-multi-agents'
   | 'ai-azure'
 
 export type ArchitectureTemplateCategory =
@@ -2395,6 +2399,22 @@ export const ARCHITECTURE_TEMPLATES: ArchitectureTemplate[] = [
     create: createAgenticAi,
   },
   {
+    id: 'ai-sdlc',
+    name: 'SDLC with AI Agents',
+    category: 'AI',
+    description:
+      'Full software delivery lifecycle with specialized AI agents: intake, architecture, coding, review, test, release, and operate — plus human gates and Feature & apply.',
+    highlights: [
+      'Intake → design → build → verify → release → operate',
+      'Coding · review · test · release agents',
+      'Feature & apply work pack included',
+    ],
+    icon: '🔁',
+    hasSampleDesign: true,
+    sampleLabel: 'AI-assisted SDLC sample',
+    create: createSdlcAiAgents,
+  },
+  {
     id: 'ai-azure',
     name: 'Azure AI Landing Zone',
     category: 'AI',
@@ -2409,6 +2429,21 @@ export const ARCHITECTURE_TEMPLATES: ArchitectureTemplate[] = [
     hasSampleDesign: true,
     sampleLabel: 'Azure AI Foundry platform sample',
     create: createAzureAiLanding,
+  },
+  {
+    id: 'ai-multi-agents',
+    name: 'Multi-Provider AI Agents',
+    category: 'AI',
+    description: 'Flexible agent architecture supporting Grok, Gemini, and Azure OpenAI with unified gateway.',
+    highlights: [
+      'Provider abstraction · failover',
+      'Shared memory · tools',
+      'MCP / function calling',
+    ],
+    icon: '🤖',
+    hasSampleDesign: true,
+    sampleLabel: 'Multi-provider agent sample',
+    create: createMultiProviderAgents,
   },
   {
     id: 'integration',

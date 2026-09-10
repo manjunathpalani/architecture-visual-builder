@@ -7,6 +7,7 @@ import { CodeLinkBadge } from '../CodeLinkBadge'
 import { WorkItemBadge } from '../WorkItemBadge'
 import { SubDiagramBadge } from '../SubDiagramBadge'
 import { ChangeStatusBadge } from '../ChangeStatusBadge'
+import { ChangeDesignBadge } from '../ChangeDesignBadge'
 import { parseChangeStatus } from '../../utils/architectureState'
 import { NodeConnectors } from './NodeConnectors'
 import { withNodeFontSize } from '../../utils/nodeFontSize'
@@ -61,6 +62,7 @@ export function DiagramNode({ id, data, selected }: NodeProps) {
         <div className="diagram-code-badge">
           <WorkItemBadge fields={nodeData.properties} compact />
           <CodeLinkBadge properties={nodeData.properties} compact />
+          {nodeData.hasChangeTask && <ChangeDesignBadge compact />}
         </div>
       </div>
     </>

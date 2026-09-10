@@ -6,9 +6,15 @@ import {
   ChevronsUpDown,
   SlidersHorizontal,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import type { ArchitectureStateView } from '../utils/architectureState'
-import type { PropertiesPlacement } from '../utils/canvasDocks'
+import {
+  clampPanelWidth,
+  loadToolsPanelWidth,
+  saveToolsPanelWidth,
+  TOOLS_PANEL_WIDTH,
+  type PropertiesPlacement,
+} from '../utils/canvasDocks'
 import type { FlowColorBy, FlowScope, FlowStyle, FlowTrace } from '../utils/flowTrace'
 import { ArchitectureLegendItems, ArchitectureStateButtons } from './ArchitectureStateLegend'
 
@@ -126,6 +132,8 @@ export function CanvasSidePanel({
   const open = !collapsed
   const hasSelection = Boolean(selectionKey)
   const [expanded, setExpanded] = useState<Set<SectionId>>(loadExpandedSections)
+  const [panelWidth, setPanelWidth] = useState(loadToolsPanelWidth)
+  const [resizing, setResizing] = useState(false)
   const propertiesRef = useRef<HTMLDivElement>(null)
   const onExpandRef = useRef(onExpand)
   onExpandRef.current = onExpand
@@ -168,8 +176,52 @@ export function CanvasSidePanel({
   const allExpanded = expanded.size === SECTION_IDS.length
   const allCollapsed = expanded.size === 0
 
+  const startResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!open) return
+    event.preventDefault()
+    event.stopPropagation()
+    const handle = event.currentTarget
+    const startX = event.clientX
+    const startWidth = panelWidth
+    handle.setPointerCapture(event.pointerId)
+    setResizing(true)
+    document.body.classList.add('is-panel-resizing')
+
+    const onMove = (move: PointerEvent) => {
+      const next = clampPanelWidth(
+        startWidth - (move.clientX - startX),
+        TOOLS_PANEL_WIDTH.min,
+        TOOLS_PANEL_WIDTH.max,
+      )
+      setPanelWidth(next)
+    }
+    const onUp = () => {
+      handle.releasePointerCapture(event.pointerId)
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', onUp)
+      document.body.classList.remove('is-panel-resizing')
+      setResizing(false)
+      setPanelWidth((current) => {
+        saveToolsPanelWidth(current)
+        return current
+      })
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', onUp)
+  }, [open, panelWidth])
+
   return (
-    <div className={`tools-shell ${open ? 'open' : 'closed'}`}>
+    <div
+      className={`tools-shell ${open ? 'open' : 'closed'}${resizing ? ' is-resizing' : ''}`}
+      style={{ '--tools-width': `${panelWidth}px` } as CSSProperties}
+    >
+      {open && (
+        <div
+          className="panel-resize-handle panel-resize-handle-left"
+          onPointerDown={startResize}
+          title="Drag to resize"
+        />
+      )}
       <aside className="tools-panel" aria-hidden={!open} id="canvas-tools-panel">
         <div className="panel-header palette-panel-header">
           <div>

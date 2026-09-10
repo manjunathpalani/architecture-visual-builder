@@ -12,6 +12,7 @@ import { getSpecFromProperties } from '../../types/interfaceSpec'
 import { useState } from 'react'
 import { InterfaceSpecModal } from '../InterfaceSpecModal'
 import { ChangeStatusBadge } from '../ChangeStatusBadge'
+import { ChangeDesignBadge } from '../ChangeDesignBadge'
 import { parseChangeStatus } from '../../utils/architectureState'
 import { NodeConnectors } from './NodeConnectors'
 import { parseNodeFontSize, withNodeFontSize } from '../../utils/nodeFontSize'
@@ -112,6 +113,7 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
           <div className="node-footer-badges">
             <WorkItemBadge fields={nodeData.properties} compact />
             <CodeLinkBadge properties={nodeData.properties} compact />
+            {nodeData.hasChangeTask && <ChangeDesignBadge compact />}
           </div>
         </div>
       </div>

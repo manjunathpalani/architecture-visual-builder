@@ -843,3 +843,636 @@ export function createAzureAiLanding(): ArchitectureDocument {
     ],
   })
 }
+
+/** End-to-end SDLC with specialized AI agents and human gates */
+export function createSdlcAiAgents(): ArchitectureDocument {
+  const git = {
+    gitProvider: 'github',
+    gitRepo: 'contoso/product-platform',
+    gitBranch: 'main',
+  }
+
+  const systems: SystemNode[] = [
+    {
+      id: 'sdlc-po',
+      type: 'diagram',
+      label: 'Product Owner',
+      category: 'Software Engineering',
+      position: { x: 48, y: 24 },
+      properties: { shape: 'c4-person', description: 'Owns outcomes, backlog, and production go/no-go' },
+    },
+    {
+      id: 'sdlc-eng',
+      type: 'diagram',
+      label: 'Engineer / Architect',
+      category: 'Software Engineering',
+      position: { x: 280, y: 24 },
+      properties: { shape: 'c4-person', description: 'Reviews agent work, merges code, and approves architecture' },
+    },
+
+    {
+      id: 'sdlc-z-intake',
+      type: 'group',
+      label: '1. Intake',
+      category: 'Drawing',
+      position: { x: 24, y: 120 },
+      properties: { zone: 'Intake', color: '#8b5cf6', width: '232', height: '380' },
+    },
+    {
+      id: 'sdlc-z-design',
+      type: 'group',
+      label: '2. Design',
+      category: 'Drawing',
+      position: { x: 272, y: 120 },
+      properties: { zone: 'Design', color: '#6366f1', width: '232', height: '380' },
+    },
+    {
+      id: 'sdlc-z-build',
+      type: 'group',
+      label: '3. Build',
+      category: 'Drawing',
+      position: { x: 520, y: 120 },
+      properties: { zone: 'Build', color: '#0ea5e9', width: '232', height: '380' },
+    },
+    {
+      id: 'sdlc-z-verify',
+      type: 'group',
+      label: '4. Verify',
+      category: 'Drawing',
+      position: { x: 768, y: 120 },
+      properties: { zone: 'Verify', color: '#10b981', width: '232', height: '380' },
+    },
+    {
+      id: 'sdlc-z-release',
+      type: 'group',
+      label: '5. Release',
+      category: 'Drawing',
+      position: { x: 1016, y: 120 },
+      properties: { zone: 'Release', color: '#f59e0b', width: '232', height: '380' },
+    },
+    {
+      id: 'sdlc-z-operate',
+      type: 'group',
+      label: '6. Operate',
+      category: 'Drawing',
+      position: { x: 1264, y: 120 },
+      properties: { zone: 'Operate', color: '#ef4444', width: '232', height: '380' },
+    },
+
+    {
+      id: 'sdlc-backlog',
+      type: 'saas',
+      label: 'Backlog / ADO',
+      category: 'SaaS',
+      position: { x: 48, y: 180 },
+      properties: {
+        vendor: 'Microsoft Azure',
+        service: 'Azure DevOps',
+        description: 'Epics, features, and work items that start the SDLC',
+        adoProject: 'product-platform',
+      },
+    },
+    {
+      id: 'sdlc-product-agent',
+      type: 'cloud',
+      label: 'Product Agent',
+      category: 'AI',
+      position: { x: 48, y: 340 },
+      properties: {
+        vendor: 'xAI',
+        description: 'Turns outcomes into stories, acceptance criteria, and a feature definition',
+        changeStatus: 'new',
+      },
+    },
+
+    {
+      id: 'sdlc-avb',
+      type: 'diagram',
+      label: 'Architecture Visual Builder',
+      category: 'Software Engineering',
+      position: { x: 296, y: 180 },
+      properties: {
+        shape: 'c4-container',
+        description: 'Current vs future architecture, new/update marks, and Feature & apply',
+        ...git,
+        gitPath: 'architecture',
+      },
+    },
+    {
+      id: 'sdlc-arch-agent',
+      type: 'cloud',
+      label: 'Architecture Agent',
+      category: 'AI',
+      position: { x: 296, y: 340 },
+      properties: {
+        vendor: 'xAI',
+        description: 'Proposes target architecture, marks new vs update, and drafts the feature definition',
+        changeStatus: 'new',
+        ...git,
+        gitPath: 'architecture',
+      },
+    },
+
+    {
+      id: 'sdlc-git',
+      type: 'cloud',
+      label: 'Git / GitHub',
+      category: 'Infrastructure',
+      position: { x: 544, y: 180 },
+      properties: {
+        description: 'Source of truth for application and IaC',
+        ...git,
+        gitPath: 'src',
+      },
+    },
+    {
+      id: 'sdlc-vscode',
+      type: 'diagram',
+      label: 'VS Code / IDE',
+      category: 'Software Engineering',
+      position: { x: 544, y: 280 },
+      properties: {
+        shape: 'component',
+        description: 'Human and coding-agent workspace linked to Feature & apply',
+        ...git,
+        gitPath: 'src',
+      },
+    },
+    {
+      id: 'sdlc-code-agent',
+      type: 'cloud',
+      label: 'Coding Agent',
+      category: 'AI',
+      position: { x: 544, y: 400 },
+      properties: {
+        vendor: 'xAI',
+        description: 'Implements scoped code changes from a Feature & apply instruction',
+        changeStatus: 'new',
+        ...git,
+        gitPath: 'src',
+      },
+    },
+
+    {
+      id: 'sdlc-ci',
+      type: 'cloud',
+      label: 'CI Pipeline',
+      category: 'Infrastructure',
+      position: { x: 792, y: 180 },
+      properties: {
+        description: 'Build, unit test, and quality gates on every pull request',
+        changeStatus: 'modified',
+        ...git,
+        gitPath: '.github/workflows',
+      },
+    },
+    {
+      id: 'sdlc-review-agent',
+      type: 'cloud',
+      label: 'Review Agent',
+      category: 'AI',
+      position: { x: 792, y: 300 },
+      properties: {
+        vendor: 'xAI',
+        description: 'PR review for correctness, tests, and architecture fit',
+        changeStatus: 'new',
+        ...git,
+        gitPath: 'src',
+      },
+    },
+    {
+      id: 'sdlc-test-agent',
+      type: 'cloud',
+      label: 'Test Agent',
+      category: 'AI',
+      position: { x: 792, y: 400 },
+      properties: {
+        vendor: 'xAI',
+        description: 'Generates and runs tests against acceptance criteria',
+        changeStatus: 'new',
+        ...git,
+        gitPath: 'tests',
+      },
+    },
+
+    {
+      id: 'sdlc-registry',
+      type: 'cloud',
+      label: 'Artifact Registry',
+      category: 'Infrastructure',
+      position: { x: 1040, y: 180 },
+      properties: { description: 'Images, packages, and signed build outputs' },
+    },
+    {
+      id: 'sdlc-cd',
+      type: 'cloud',
+      label: 'CD / Environments',
+      category: 'Infrastructure',
+      position: { x: 1040, y: 280 },
+      properties: {
+        description: 'Dev → test → prod with approvals',
+        changeStatus: 'modified',
+        ...git,
+        gitPath: 'deploy',
+      },
+    },
+    {
+      id: 'sdlc-release-agent',
+      type: 'cloud',
+      label: 'Release Agent',
+      category: 'AI',
+      position: { x: 1040, y: 400 },
+      properties: {
+        vendor: 'xAI',
+        description: 'Prepares release notes, checks gates, and drafts prod promotion',
+        changeStatus: 'new',
+        ...git,
+        gitPath: 'deploy',
+      },
+    },
+
+    {
+      id: 'sdlc-obs',
+      type: 'cloud',
+      label: 'Observability',
+      category: 'Infrastructure',
+      position: { x: 1288, y: 180 },
+      properties: { description: 'Logs, traces, metrics, and SLO burn' },
+    },
+    {
+      id: 'sdlc-prod',
+      type: 'cloud',
+      label: 'Production App',
+      category: 'Cloud',
+      position: { x: 1288, y: 280 },
+      properties: { description: 'Running workload that receives the SDLC output' },
+    },
+    {
+      id: 'sdlc-sre-agent',
+      type: 'cloud',
+      label: 'SRE / Incident Agent',
+      category: 'AI',
+      position: { x: 1288, y: 400 },
+      properties: {
+        vendor: 'xAI',
+        description: 'Triages incidents and opens follow-up work on the backlog',
+        changeStatus: 'new',
+      },
+    },
+
+    {
+      id: 'sdlc-hitl',
+      type: 'diagram',
+      label: 'Human gates',
+      category: 'Software Engineering',
+      position: { x: 792, y: 24 },
+      properties: {
+        shape: 'decision',
+        description: 'Required on architecture sign-off, merge, and production deploy',
+      },
+    },
+
+    {
+      id: 'sdlc-orch',
+      type: 'middleware',
+      label: 'SDLC Agent Orchestrator',
+      category: 'Middleware',
+      position: { x: 544, y: 540 },
+      properties: {
+        componentType: 'api',
+        description: 'Routes Feature & apply work to the right stage agent with policy',
+        changeStatus: 'new',
+        ...git,
+        gitPath: 'agents/orchestrator',
+      },
+      subDiagram: {
+        name: 'SDLC agent runtime',
+        description: 'Stage router, workers, and policy for coding-agent jobs',
+        systems: [
+          {
+            id: 'sdlc-sub-router',
+            type: 'diagram',
+            label: 'Stage router',
+            category: 'Software Engineering',
+            position: { x: 80, y: 140 },
+            properties: { shape: 'process', description: 'Map feature tasks to intake, design, code, test, release' },
+          },
+          {
+            id: 'sdlc-sub-worker',
+            type: 'diagram',
+            label: 'Agent worker',
+            category: 'Software Engineering',
+            position: { x: 320, y: 80 },
+            properties: { shape: 'component', description: 'Run one scoped instruction against a git path' },
+          },
+          {
+            id: 'sdlc-sub-policy',
+            type: 'diagram',
+            label: 'Policy / HITL',
+            category: 'Software Engineering',
+            position: { x: 320, y: 240 },
+            properties: { shape: 'decision', description: 'Block merge and prod without human approval' },
+          },
+        ],
+        integrations: [
+          edge('sdlc-sub-r-w', 'sdlc-sub-router', 'sdlc-sub-worker', 'Dispatch job', 'Custom'),
+          edge('sdlc-sub-w-p', 'sdlc-sub-worker', 'sdlc-sub-policy', 'Authorize write', 'Custom'),
+        ],
+      },
+    },
+    {
+      id: 'sdlc-llm',
+      type: 'saas',
+      label: 'LLM Gateway',
+      category: 'SaaS',
+      position: { x: 296, y: 540 },
+      properties: { vendor: 'xAI', description: 'SpaceXAI / Azure OpenAI models used by every SDLC agent' },
+    },
+    {
+      id: 'sdlc-mcp',
+      type: 'middleware',
+      label: 'MCP / Tool Gateway',
+      category: 'Middleware',
+      position: { x: 792, y: 540 },
+      properties: {
+        componentType: 'api',
+        description: 'Git, CI, test, deploy, backlog, and Architecture Visual Builder tools',
+        changeStatus: 'new',
+      },
+    },
+    {
+      id: 'sdlc-memory',
+      type: 'database',
+      label: 'Agent memory & traces',
+      category: 'Database',
+      position: { x: 1040, y: 540 },
+      properties: { description: 'Feature packs, apply instructions, and audit of agent runs' },
+    },
+    {
+      id: 'sdlc-id',
+      type: 'cloud',
+      label: 'Identity / Entra',
+      category: 'Infrastructure',
+      position: { x: 48, y: 540 },
+      properties: { vendor: 'Microsoft Azure', description: 'Human and agent identities, PR and deploy RBAC' },
+    },
+    {
+      id: 'sdlc-note',
+      type: 'note',
+      label: 'How to use',
+      category: 'Drawing',
+      position: { x: 1288, y: 540 },
+      properties: {
+        width: '220',
+        height: '140',
+        content:
+          'Mark new vs update on the canvas, open the Feature & apply sub-tab, Generate instructions, then Apply to run coding agents in VS Code.',
+      },
+    },
+  ]
+
+  const now = new Date().toISOString()
+
+  return stamp({
+    metadata: {
+      name: 'SDLC with AI Agents',
+      description:
+        'Comprehensive software delivery lifecycle: intake → design → build → verify → release → operate, each with a specialized AI agent, human gates, and Feature & apply work instructions.',
+      version: '1.0.0',
+      updatedAt: now,
+    },
+    systems,
+    integrations: [
+      edge('sdlc-i-po-bl', 'sdlc-po', 'sdlc-backlog', 'Outcome / feature', 'REST API'),
+      edge('sdlc-i-po-hitl', 'sdlc-po', 'sdlc-hitl', 'Prod go/no-go', 'Custom', { frequency: 'event-driven' }),
+      edge('sdlc-i-eng-avb', 'sdlc-eng', 'sdlc-avb', 'Edit architecture', 'Custom'),
+      edge('sdlc-i-eng-vs', 'sdlc-eng', 'sdlc-vscode', 'Review / merge', 'Custom'),
+      edge('sdlc-i-eng-hitl', 'sdlc-eng', 'sdlc-hitl', 'Approve merge', 'Custom', { frequency: 'event-driven' }),
+
+      edge('sdlc-i-bl-prod', 'sdlc-backlog', 'sdlc-product-agent', 'Draft stories', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-prod-avb', 'sdlc-product-agent', 'sdlc-avb', 'Feature definition', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-avb-arch', 'sdlc-avb', 'sdlc-arch-agent', 'Propose to-be design', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-arch-avb', 'sdlc-arch-agent', 'sdlc-avb', 'New vs update marks', 'REST API', {
+        changeStatus: 'new',
+        direction: 'inbound',
+      }),
+
+      edge('sdlc-i-avb-orch', 'sdlc-avb', 'sdlc-orch', 'Apply work pack', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-orch-code', 'sdlc-orch', 'sdlc-code-agent', 'Coding job', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-code-git', 'sdlc-code-agent', 'sdlc-git', 'Commit / PR', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-vs-git', 'sdlc-vscode', 'sdlc-git', 'Push / pull', 'REST API', { direction: 'bidirectional' }),
+      edge('sdlc-i-git-ci', 'sdlc-git', 'sdlc-ci', 'PR webhook', 'Webhook', { frequency: 'event-driven' }),
+
+      edge('sdlc-i-orch-rev', 'sdlc-orch', 'sdlc-review-agent', 'Review job', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-rev-git', 'sdlc-review-agent', 'sdlc-git', 'PR comments', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-orch-test', 'sdlc-orch', 'sdlc-test-agent', 'Test job', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-test-ci', 'sdlc-test-agent', 'sdlc-ci', 'Test results', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-ci-hitl', 'sdlc-ci', 'sdlc-hitl', 'Merge gate', 'Webhook', { frequency: 'event-driven' }),
+
+      edge('sdlc-i-ci-reg', 'sdlc-ci', 'sdlc-registry', 'Publish artifact', 'REST API'),
+      edge('sdlc-i-reg-cd', 'sdlc-registry', 'sdlc-cd', 'Promote image', 'REST API'),
+      edge('sdlc-i-orch-rel', 'sdlc-orch', 'sdlc-release-agent', 'Release job', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-rel-cd', 'sdlc-release-agent', 'sdlc-cd', 'Draft promotion', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-cd-hitl', 'sdlc-cd', 'sdlc-hitl', 'Prod approval', 'Webhook', { frequency: 'event-driven' }),
+      edge('sdlc-i-cd-prod', 'sdlc-cd', 'sdlc-prod', 'Deploy', 'REST API'),
+
+      edge('sdlc-i-prod-obs', 'sdlc-prod', 'sdlc-obs', 'Telemetry', 'REST API'),
+      edge('sdlc-i-obs-sre', 'sdlc-obs', 'sdlc-sre-agent', 'Alert / SLO burn', 'Webhook', {
+        frequency: 'event-driven',
+        changeStatus: 'new',
+      }),
+      edge('sdlc-i-sre-bl', 'sdlc-sre-agent', 'sdlc-backlog', 'Open follow-up', 'REST API', { changeStatus: 'new' }),
+
+      edge('sdlc-i-id-orch', 'sdlc-id', 'sdlc-orch', 'Agent identity', 'REST API'),
+      edge('sdlc-i-llm-orch', 'sdlc-orch', 'sdlc-llm', 'Plan & generate', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-orch-mcp', 'sdlc-orch', 'sdlc-mcp', 'Tool call', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-mcp-git', 'sdlc-mcp', 'sdlc-git', 'Repo tools', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-mcp-ci', 'sdlc-mcp', 'sdlc-ci', 'Pipeline tools', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-mcp-avb', 'sdlc-mcp', 'sdlc-avb', 'Architecture tools', 'REST API', { changeStatus: 'new' }),
+      edge('sdlc-i-orch-mem', 'sdlc-orch', 'sdlc-memory', 'Store apply pack', 'REST API', {
+        changeStatus: 'new',
+        direction: 'bidirectional',
+      }),
+    ],
+    changeDesigns: [
+      {
+        id: 'design-sdlc-ai-agents',
+        title: 'Embed AI agents in the SDLC',
+        definition:
+          'Add specialized AI agents for product, architecture, coding, review, test, release, and incidents. Humans keep merge and production gates. Feature & apply turns canvas new/update marks into scoped coding-agent jobs.',
+        problem:
+          'Design, code, review, and test are manual and sequential, so delivery lags and architecture drift is common.',
+        proposedChange:
+          'New: Architecture, Coding, Review, Test, Release, and SRE agents, plus the orchestrator and MCP gateway.\nUpdate: CI Pipeline and CD / Environments invoke those agents and keep human gates on merge and production.',
+        acceptanceCriteria:
+          'Each new agent has a git path; Generate produces a NEW or UPDATE instruction; Apply runs in VS Code without touching unrelated services; prod deploy still requires a human gate.',
+        status: 'ready',
+        createdAt: now,
+        updatedAt: now,
+        tasks: [
+          {
+            id: 'task-arch-agent',
+            systemId: 'sdlc-arch-agent',
+            systemLabel: 'Architecture Agent',
+            changeKind: 'new',
+            intent: 'Create the architecture agent that reads the canvas, marks new vs update, and drafts the feature definition.',
+            status: 'pending',
+          },
+          {
+            id: 'task-code-agent',
+            systemId: 'sdlc-code-agent',
+            systemLabel: 'Coding Agent',
+            changeKind: 'new',
+            intent: 'Create the coding agent that implements one Feature & apply instruction against src/ only.',
+            status: 'pending',
+          },
+          {
+            id: 'task-review-agent',
+            systemId: 'sdlc-review-agent',
+            systemLabel: 'Review Agent',
+            changeKind: 'new',
+            intent: 'Create the PR review agent that checks architecture fit, tests, and policy before merge.',
+            status: 'pending',
+          },
+          {
+            id: 'task-test-agent',
+            systemId: 'sdlc-test-agent',
+            systemLabel: 'Test Agent',
+            changeKind: 'new',
+            intent: 'Create the test agent that generates and runs tests from acceptance criteria in tests/.',
+            status: 'pending',
+          },
+          {
+            id: 'task-release-agent',
+            systemId: 'sdlc-release-agent',
+            systemLabel: 'Release Agent',
+            changeKind: 'new',
+            intent: 'Create the release agent that drafts promotions and never skips the prod human gate.',
+            status: 'pending',
+          },
+          {
+            id: 'task-ci',
+            systemId: 'sdlc-ci',
+            systemLabel: 'CI Pipeline',
+            changeKind: 'update',
+            intent: 'Update CI workflows to invoke review and test agents on each PR and fail the merge gate on policy deny.',
+            status: 'pending',
+          },
+          {
+            id: 'task-cd',
+            systemId: 'sdlc-cd',
+            systemLabel: 'CD / Environments',
+            changeKind: 'update',
+            intent: 'Update CD so the release agent can draft promotions while production still requires human approval.',
+            status: 'pending',
+          },
+          {
+            id: 'task-orch',
+            systemId: 'sdlc-orch',
+            systemLabel: 'SDLC Agent Orchestrator',
+            changeKind: 'new',
+            intent: 'Create the orchestrator that turns a Feature & apply pack into stage jobs with identity and audit.',
+            status: 'pending',
+          },
+        ],
+      },
+    ],
+  })
+}
+
+/** Multi-provider AI Agent orchestration */
+export function createMultiProviderAgents(): ArchitectureDocument {
+  const systems: SystemNode[] = [
+    {
+      id: 'agent-user',
+      type: 'diagram',
+      label: 'User / App',
+      category: 'Software Engineering',
+      position: { x: 40, y: 200 },
+      properties: { shape: 'c4-person', description: 'Interacts with AI agents' },
+    },
+    {
+      id: 'agent-gateway',
+      type: 'cloud',
+      label: 'Agent Gateway',
+      category: 'Cloud',
+      position: { x: 300, y: 200 },
+      properties: { componentType: 'api', description: 'Unified provider abstraction layer' },
+    },
+    {
+      id: 'agent-grok',
+      type: 'cloud',
+      label: 'Grok Agent',
+      category: 'AI',
+      position: { x: 560, y: 80 },
+      properties: {
+        vendor: 'xAI',
+        service: 'Grok',
+        description: 'SpaceXAI reasoning and planning agent',
+        icon: 'GrokAgentIcon',
+      },
+    },
+    {
+      id: 'agent-gemini',
+      type: 'cloud',
+      label: 'Gemini Agent',
+      category: 'AI',
+      position: { x: 560, y: 200 },
+      properties: {
+        vendor: 'Google',
+        service: 'Gemini',
+        description: 'Google Gemini multimodal agent',
+        icon: 'GeminiAgentIcon',
+      },
+    },
+    {
+      id: 'agent-copilot',
+      type: 'cloud',
+      label: 'Copilot Agent',
+      category: 'AI',
+      position: { x: 560, y: 320 },
+      properties: {
+        vendor: 'Microsoft',
+        service: 'Azure OpenAI',
+        description: 'Azure OpenAI GPT agent for enterprise workflows',
+        icon: 'CopilotAgentIcon',
+      },
+    },
+    {
+      id: 'agent-memory',
+      type: 'database',
+      label: 'Agent Memory',
+      category: 'Database',
+      position: { x: 840, y: 200 },
+      properties: { description: 'Conversation state and tool results cache' },
+    },
+    {
+      id: 'agent-tools',
+      type: 'middleware',
+      label: 'Tool / MCP Gateway',
+      category: 'Middleware',
+      position: { x: 1100, y: 200 },
+      properties: { componentType: 'api', description: 'Orchestrates agent tool calls' },
+    },
+  ]
+
+  return stamp({
+    metadata: {
+      name: 'Multi-Provider AI Agents',
+      description: 'Flexible architecture supporting Grok, Gemini, and Azure OpenAI agents with shared memory and tools.',
+      version: '1.0.0',
+      updatedAt: new Date().toISOString(),
+    },
+    systems,
+    integrations: [
+      edge('ag-int-req', 'agent-user', 'agent-gateway', 'Query / task', 'REST API'),
+      edge('ag-int-grok', 'agent-gateway', 'agent-grok', 'Route to Grok', 'REST API'),
+      edge('ag-int-gemini', 'agent-gateway', 'agent-gemini', 'Route to Gemini', 'REST API'),
+      edge('ag-int-copilot', 'agent-gateway', 'agent-copilot', 'Route to Copilot', 'REST API'),
+      edge('ag-int-mem-read', 'agent-grok', 'agent-memory', 'Read context', 'REST API'),
+      edge('ag-int-mem-write', 'agent-grok', 'agent-memory', 'Write state', 'REST API', { direction: 'bidirectional' }),
+      edge('ag-int-tools', 'agent-grok', 'agent-tools', 'Invoke tools', 'REST API'),
+      edge('ag-int-resp', 'agent-grok', 'agent-user', 'Response', 'REST API', { direction: 'inbound' }),
+    ],
+  })
+}

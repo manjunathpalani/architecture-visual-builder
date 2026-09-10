@@ -1,4 +1,4 @@
-import { LayoutTemplate, Plus, X } from 'lucide-react'
+import { Bot, LayoutTemplate, Plus, X } from 'lucide-react'
 import type { DiagramPath } from '../types/diagram'
 import type { SubTabItem } from '../utils/diagramNavigation'
 import { EditableTabName } from './EditableTabName'
@@ -6,7 +6,8 @@ import { EditableTabName } from './EditableTabName'
 interface SubTabBarProps {
   tabs: SubTabItem[]
   currentPath: DiagramPath
-  onSelect: (path: DiagramPath) => void
+  activeId?: string
+  onSelect: (tab: SubTabItem) => void
   onNewFromTemplate: () => void
   onRemove: (tab: SubTabItem) => void
   onRename: (tab: SubTabItem, name: string) => void
@@ -15,13 +16,15 @@ interface SubTabBarProps {
 export function SubTabBar({
   tabs,
   currentPath,
+  activeId: activeIdProp,
   onSelect,
   onNewFromTemplate,
   onRemove,
   onRename,
 }: SubTabBarProps) {
   const activeId =
-    currentPath.length === 0 ? 'overview' : currentPath[currentPath.length - 1].systemId
+    activeIdProp ??
+    (currentPath.length === 0 ? 'overview' : currentPath[currentPath.length - 1].systemId)
 
   return (
     <div className="sub-tabs-bar" role="tablist" aria-label="Sub-diagrams">
@@ -29,7 +32,13 @@ export function SubTabBar({
         {tabs.map((tab) => {
           const isActive = tab.id === activeId
           const stats =
-            tab.stats != null ? `${tab.stats.systems} · ${tab.stats.integrations}` : ''
+            tab.kind === 'feature'
+              ? tab.stats != null && tab.stats.systems > 0
+                ? `${tab.stats.systems}`
+                : ''
+              : tab.stats != null
+                ? `${tab.stats.systems} · ${tab.stats.integrations}`
+                : ''
           return (
             <div
               key={tab.id}
@@ -37,17 +46,18 @@ export function SubTabBar({
               role="tab"
               aria-selected={isActive}
               title={tab.name}
-              onClick={() => onSelect(tab.path)}
-              onKeyDown={(e) => e.key === 'Enter' && onSelect(tab.path)}
+              onClick={() => onSelect(tab)}
+              onKeyDown={(e) => e.key === 'Enter' && onSelect(tab)}
               tabIndex={0}
             >
+              {tab.kind === 'feature' && <Bot size={12} />}
               <EditableTabName
                 name={tab.name}
                 className="sub-tab-name"
                 onRename={(next) => onRename(tab, next)}
               />
               {stats && <span className="sub-tab-stats">{stats}</span>}
-              {tab.kind !== 'overview' && (
+              {tab.kind === 'sub' && (
                 <button
                   type="button"
                   className="sub-tab-close"

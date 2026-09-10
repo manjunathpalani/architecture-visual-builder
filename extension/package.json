@@ -1,0 +1,85 @@
+{
+  "name": "architecture-visual-builder",
+  "displayName": "Architecture Visual Builder",
+  "description": "Visual architecture mapping in VS Code, with linked coding agents per component.",
+  "version": "0.1.0",
+  "publisher": "architecture-visual-builder",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "architectureVisualBuilder.editor",
+        "displayName": "Architecture Visual Builder",
+        "selector": [
+          {
+            "filenamePattern": "*.architecture.json"
+          },
+          {
+            "filenamePattern": "*.avb.json"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "architectureVisualBuilder.new",
+        "title": "New Architecture Diagram",
+        "category": "Architecture Visual Builder"
+      },
+      {
+        "command": "architectureVisualBuilder.open",
+        "title": "Open with Architecture Visual Builder",
+        "category": "Architecture Visual Builder"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "architectureVisualBuilder.open",
+          "when": "resourceExtname == .json",
+          "group": "navigation@10"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "architectureVisualBuilder.open",
+          "when": "resourceExtname == .json && !activeCustomEditorId",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "architectureVisualBuilder.new"
+        },
+        {
+          "command": "architectureVisualBuilder.open"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "copy-media": "node ./scripts/copy-media.mjs",
+    "build": "npm run compile && npm run copy-media",
+    "open": "node ./scripts/open-dev.mjs",
+    "install-local": "npm run build && node ./scripts/install-local.mjs",
+    "package": "npm run build && npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository --skip-license"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "~5.8.3"
+  }
+}

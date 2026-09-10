@@ -11,6 +11,7 @@ export type DialogId =
   | 'saas'
   | 'aiDiagram'
   | 'aiAnalysis'
+  | 'changeDesign'
 
 export const DIALOG_LABELS: Record<DialogId, string> = {
   settings: 'Settings',
@@ -25,6 +26,7 @@ export const DIALOG_LABELS: Record<DialogId, string> = {
   saas: 'SaaS metadata',
   aiDiagram: 'Draw with AI',
   aiAnalysis: 'Capability analysis',
+  changeDesign: 'Feature and apply changes',
 }
 
 const STORAGE_KEY = 'avb-dialog-stack'

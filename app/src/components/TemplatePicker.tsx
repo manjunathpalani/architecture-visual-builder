@@ -16,6 +16,7 @@ import {
   Sparkles,
   Square,
   Workflow,
+  GitBranch,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -53,6 +54,8 @@ const TEMPLATE_ICONS: Record<ArchitectureTemplateId, LucideIcon> = {
   'ai-rag': Sparkles,
   'ai-mlops': Brain,
   'ai-agents': Bot,
+  'ai-sdlc': GitBranch,
+  'ai-multi-agents': Bot,
   'ai-azure': Cpu,
 }
 

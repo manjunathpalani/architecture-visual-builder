@@ -25,6 +25,8 @@ import {
   Ticket,
   Upload,
   UploadCloud,
+  Bot,
+  Save,
 } from 'lucide-react'
 import { CodeLinksPanel } from './components/CodeLinksPanel'
 import { WorkItemsPanel } from './components/WorkItemsPanel'
@@ -36,6 +38,7 @@ import { SwaggerInjectorModal } from './components/SwaggerInjectorModal'
 import { SaasMetadataModal } from './components/SaasMetadataModal'
 import { AiDiagramModal } from './components/AiDiagramModal'
 import { AiAnalysisModal } from './components/AiAnalysisModal'
+import { ChangeDesignModal } from './components/ChangeDesignModal'
 import { AuditTrailPanel } from './components/AuditTrailPanel'
 import { DialogLayer } from './components/DialogLayer'
 import {
@@ -58,7 +61,7 @@ import { ProjectTabs } from './components/ProjectTabs'
 import { SubTabBar } from './components/SubTabBar'
 import { TemplatePicker } from './components/TemplatePicker'
 import { getLinkedSystems } from './utils/codeLink'
-import type { ArchitectureDocument, PaletteItem, SystemNode } from './types'
+import type { ArchitectureDocument, PaletteItem, SystemNode, TechnicalChangeDesign } from './types'
 import { createProjectTab, type ProjectTab } from './types/project'
 import {
   addSystemsInView,
@@ -84,6 +87,7 @@ import { IntegrationCanvas, type IntegrationCanvasHandle } from './components/In
 import { JsonPanel } from './components/JsonPanel'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import {
+  createEmptyDocument,
   downloadJson,
   parseArchitectureJson,
   serializeArchitecture,
@@ -117,8 +121,31 @@ import {
   loadProjectAutosave,
   saveProjectAutosave,
 } from './utils/projectAutosave'
+import {
+  isAbort,
+  isLocalFileSaveSupported,
+  loadStoredLocalFiles,
+  pickLocalSaveFile,
+  queryLocalFilePermission,
+  removeStoredLocalFile,
+  requestLocalFilePermission,
+  storeLocalFile,
+  suggestedArchitectureFilename,
+  writeTextFileQueued,
+  type LocalFileHandle,
+} from './utils/localFileSave'
+import {
+  isVsCodeHost,
+  notifyHostReady,
+  saveDocumentToHost,
+  subscribeToHost,
+} from './utils/vscodeHost'
 
 function createInitialWorkspace() {
+  if (isVsCodeHost()) {
+    const tab = createProjectTab(createEmptyDocument('Architecture'))
+    return { tabs: [tab], activeTabId: tab.id, savedAt: null as string | null }
+  }
   const restored = loadProjectAutosave()
   if (restored) return restored
   const tab = createProjectTab(createFromTemplate('enterprise'))
@@ -147,6 +174,7 @@ function App() {
   const [templatePickerMode, setTemplatePickerMode] = useState<'project' | 'sub-tab'>('project')
   const [aiChatMounted, setAiChatMounted] = useState(() => loadDialogStack().includes('aiDiagram'))
   const [analysisFocus, setAnalysisFocus] = useState<string | undefined>(undefined)
+  const [designFocusSystemId, setDesignFocusSystemId] = useState<string | undefined>(undefined)
 
   const [exporting, setExporting] = useState(false)
   const [menusHidden, setMenusHidden] = useState(loadMenusHidden)
@@ -163,6 +191,10 @@ function App() {
     INITIAL_WORKSPACE.savedAt ? 'saved' : 'idle',
   )
   const [autosaveAt, setAutosaveAt] = useState<string | null>(INITIAL_WORKSPACE.savedAt)
+  const localHandlesRef = useRef(new Map<string, LocalFileHandle>())
+  const [localSaves, setLocalSaves] = useState<Array<{ tabId: string; name: string; needsPermission: boolean }>>([])
+  const vscodeDocumentReadyRef = useRef(false)
+  const vscodeHosted = isVsCodeHost()
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
@@ -202,9 +234,13 @@ function App() {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0]
   const document = activeTab.document
   const drillPath = activeTab.drillPath
+  const workspaceView = activeTab.workspaceView === 'feature' ? 'feature' : 'diagram'
   const diagramView = getDiagramView(document, drillPath)
   const linkedCount = getLinkedSystems(document.systems).length
   const workItemCount = collectLinkedWorkItems(document).length
+  const designCount = document.changeDesigns?.length ?? 0
+  const localSave = localSaves.find((item) => item.tabId === activeTabId)
+  const canSaveLocally = isLocalFileSaveSupported()
 
   const updateActiveTab = useCallback(
     (updater: (tab: ProjectTab) => ProjectTab) => {
@@ -235,6 +271,32 @@ function App() {
       document: { ...tab.document, audit: [] },
     }))
   }, [updateActiveTab])
+
+  const handleChangeDesigns = useCallback(
+    (designs: TechnicalChangeDesign[]) => {
+      setDocument(
+        (prev) => ({ ...prev, changeDesigns: designs.length > 0 ? designs : undefined }),
+        { kind: 'update', summary: 'Updated technical change design' },
+      )
+    },
+    [setDocument],
+  )
+
+  const setWorkspaceView = useCallback(
+    (view: 'diagram' | 'feature') => {
+      updateActiveTab((tab) => (tab.workspaceView === view ? tab : { ...tab, workspaceView: view }))
+    },
+    [updateActiveTab],
+  )
+
+  const openChangeDesign = useCallback(
+    (systemId?: string) => {
+      setDesignFocusSystemId(systemId)
+      setWorkspaceView('feature')
+      closeDialog('changeDesign')
+    },
+    [closeDialog, setWorkspaceView],
+  )
 
   const remountCanvas = useCallback(() => {
     updateActiveTab((tab) => ({ ...tab, canvasKey: tab.canvasKey + 1 }))
@@ -307,9 +369,10 @@ function App() {
   }
 
   const handleRenameSubTab = (
-    tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub'; name: string },
+    tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub' | 'feature'; name: string },
     name: string,
   ) => {
+    if (tab.kind === 'feature') return
     if (tab.kind === 'overview') {
       handleRenameTab(activeTabId, name)
       return
@@ -362,8 +425,8 @@ function App() {
     openDialog('template')
   }
 
-  const handleRemoveSubTab = (tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub' }) => {
-    if (tab.kind === 'overview') return
+  const handleRemoveSubTab = (tab: { id: string; path: typeof drillPath; kind: 'overview' | 'sub' | 'feature' }) => {
+    if (tab.kind === 'overview' || tab.kind === 'feature') return
     updateActiveTab((current) => {
       const viewingRemoved = current.drillPath.some((segment) => segment.systemId === tab.id)
       const nextPath = viewingRemoved ? tab.path.slice(0, -1) : current.drillPath
@@ -420,6 +483,9 @@ function App() {
       const next = newTabs[Math.min(index, newTabs.length - 1)]
       setActiveTabId(next.id)
     }
+    localHandlesRef.current.delete(id)
+    setLocalSaves((prev) => prev.filter((item) => item.tabId !== id))
+    void removeStoredLocalFile(id)
     clearSelection()
   }
 
@@ -462,6 +528,22 @@ function App() {
     [updateActiveTab],
   )
 
+  useEffect(() => {
+    if (!isVsCodeHost()) return
+    const unsubscribe = subscribeToHost((message) => {
+      if (message.type !== 'setDocument') return
+      const json = message.json?.trim()
+      if (!json) {
+        vscodeDocumentReadyRef.current = true
+        return
+      }
+      vscodeDocumentReadyRef.current = true
+      handleImport(json, false)
+    })
+    notifyHostReady()
+    return unsubscribe
+  }, [handleImport])
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -477,6 +559,101 @@ function App() {
   const handleExport = () => {
     downloadJson(document)
   }
+
+  const bindLocalHandle = useCallback((tabId: string, handle: LocalFileHandle) => {
+    localHandlesRef.current.set(tabId, handle)
+    setLocalSaves((prev) => [
+      ...prev.filter((item) => item.tabId !== tabId),
+      { tabId, name: handle.name, needsPermission: false },
+    ])
+    void storeLocalFile({ tabId, name: handle.name, handle })
+  }, [])
+
+  const persistGrantedLocalFiles = useCallback(async (projectTabs: ProjectTab[]) => {
+    for (const tab of projectTabs) {
+      const handle = localHandlesRef.current.get(tab.id)
+      if (!handle) continue
+      const permission = await queryLocalFilePermission(handle)
+      if (permission !== 'granted') continue
+      try {
+        await writeTextFileQueued(tab.id, handle, serializeArchitecture(tab.document))
+      } catch {
+        setLocalSaves((prev) =>
+          prev.map((item) => (item.tabId === tab.id ? { ...item, needsPermission: true } : item)),
+        )
+      }
+    }
+  }, [])
+
+  const handleSaveToDevice = useCallback(
+    async (pickNew = false) => {
+      const tabId = activeTabIdRef.current
+      const tab = tabsRef.current.find((item) => item.id === tabId)
+      if (!tab) return
+
+      if (isVsCodeHost()) {
+        saveDocumentToHost(serializeArchitecture(tab.document))
+        vscodeDocumentReadyRef.current = true
+        setGitMessage('Saved to the VS Code workspace file')
+        return
+      }
+
+      const existing = pickNew ? undefined : localHandlesRef.current.get(tabId)
+      if (existing) {
+        const current = await queryLocalFilePermission(existing)
+        const permission =
+          current === 'granted' ? current : await requestLocalFilePermission(existing)
+        if (permission !== 'granted') {
+          setLocalSaves((prev) =>
+            prev.map((item) => (item.tabId === tabId ? { ...item, needsPermission: true } : item)),
+          )
+          setGitMessage('Allow file access to keep saving this project on your device')
+          return
+        }
+        try {
+          await writeTextFileQueued(tabId, existing, serializeArchitecture(tab.document))
+          setLocalSaves((prev) =>
+            prev.map((item) => (item.tabId === tabId ? { ...item, needsPermission: false } : item)),
+          )
+          setGitMessage(`Saved ${existing.name} on this device`)
+        } catch (err) {
+          setGitMessage(err instanceof Error ? err.message : 'Could not write the local file')
+        }
+        return
+      }
+
+      if (!isLocalFileSaveSupported()) {
+        downloadJson(tab.document)
+        setGitMessage(
+          'Downloaded a JSON copy. Chrome or Edge can remember the file and keep saving it automatically.',
+        )
+        return
+      }
+
+      try {
+        const picked = await pickLocalSaveFile(
+          suggestedArchitectureFilename(tab.document.metadata.name),
+        )
+        if (!picked) return
+        await writeTextFileQueued(tabId, picked, serializeArchitecture(tab.document))
+        bindLocalHandle(tabId, picked)
+        setGitMessage(`Saving automatically to ${picked.name}`)
+      } catch (err) {
+        if (isAbort(err)) return
+        setGitMessage(err instanceof Error ? err.message : 'Could not save to this device')
+      }
+    },
+    [bindLocalHandle],
+  )
+
+  const handleStopLocalSave = useCallback(() => {
+    const tabId = activeTabIdRef.current
+    const name = localHandlesRef.current.get(tabId)?.name
+    localHandlesRef.current.delete(tabId)
+    setLocalSaves((prev) => prev.filter((item) => item.tabId !== tabId))
+    void removeStoredLocalFile(tabId)
+    if (name) setGitMessage(`Stopped saving to ${name}`)
+  }, [])
 
   const handleExportImage = async (format: DiagramImageFormat) => {
     setExporting(true)
@@ -703,10 +880,16 @@ function App() {
       lastAutosaveJson.current = fingerprint
       setAutosaveAt(savedAt)
       setAutosaveStatus('saved')
+      if (isVsCodeHost() && vscodeDocumentReadyRef.current) {
+        const tab = tabsRef.current.find((item) => item.id === activeTabIdRef.current)
+        if (tab) saveDocumentToHost(serializeArchitecture(tab.document))
+      } else {
+        void persistGrantedLocalFiles(tabsRef.current)
+      }
     } catch {
       setAutosaveStatus('error')
     }
-  }, [])
+  }, [persistGrantedLocalFiles])
 
   useEffect(() => {
     if (skipFirstAutosave.current) {
@@ -733,6 +916,31 @@ function App() {
   }, [flushAutosave])
 
   useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const rows = await loadStoredLocalFiles()
+      if (cancelled) return
+      const handles = new Map<string, LocalFileHandle>()
+      const bindings: Array<{ tabId: string; name: string; needsPermission: boolean }> = []
+      for (const row of rows) {
+        handles.set(row.tabId, row.handle)
+        const permission = await queryLocalFilePermission(row.handle)
+        bindings.push({
+          tabId: row.tabId,
+          name: row.name,
+          needsPermission: permission !== 'granted',
+        })
+      }
+      if (cancelled) return
+      localHandlesRef.current = handles
+      setLocalSaves(bindings)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     const syncFullscreen = () => {
       const active = isElementFullscreen(appRef.current)
       setIsFullscreen(active)
@@ -747,6 +955,12 @@ function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        void handleSaveToDevice()
+        return
+      }
+
       const target = event.target as HTMLElement | null
       const inField =
         target &&
@@ -780,7 +994,7 @@ function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [closeTopDialog, menusHidden, toggleFullscreen, toggleMenus])
+  }, [closeTopDialog, handleSaveToDevice, menusHidden, toggleFullscreen, toggleMenus])
 
   const handleAiGenerate = (generated: ArchitectureDocument, placement: AiPlacement) => {
     if (placement === 'new-tab') {
@@ -824,6 +1038,42 @@ function App() {
             onSelect: () => fileInputRef.current?.click(),
           },
           { id: 'edit-json', label: 'Edit JSON', hint: 'Raw architecture document', icon: FileJson, onSelect: handleOpenJsonEditor },
+          {
+            id: 'save-local',
+            label: vscodeHosted
+              ? 'Save workspace file'
+              : localSave
+                ? 'Save to this device'
+                : 'Save to this device…',
+            hint: vscodeHosted
+              ? 'Writes this architecture JSON in the VS Code workspace'
+              : localSave
+                ? `Writes ${localSave.name} automatically after the first pick`
+                : canSaveLocally
+                  ? 'Choose a JSON file once, then autosave writes there'
+                  : 'Downloads a JSON copy (Chrome or Edge can keep writing to the same file)',
+            shortcut: 'Ctrl+S',
+            icon: Save,
+            onSelect: () => void handleSaveToDevice(),
+          },
+          ...(localSave
+            ? [
+                {
+                  id: 'change-local',
+                  label: 'Change local file…',
+                  hint: `Currently ${localSave.name}`,
+                  icon: FileDown,
+                  onSelect: () => void handleSaveToDevice(true),
+                } as const,
+                {
+                  id: 'stop-local',
+                  label: 'Stop saving to this device',
+                  hint: localSave.name,
+                  icon: FileDown,
+                  onSelect: handleStopLocalSave,
+                } as const,
+              ]
+            : []),
           { id: 'sep-export', type: 'separator' },
           {
             id: 'export-json',
@@ -954,6 +1204,13 @@ function App() {
               openDialog('aiAnalysis')
             },
           },
+          {
+            id: 'change-design',
+            label: designCount > 0 ? `Feature & apply (${designCount})` : 'Feature & apply changes…',
+            hint: 'New vs update architecture → agent work → apply',
+            icon: Bot,
+            onSelect: () => openChangeDesign(),
+          },
         ],
       },
       {
@@ -1072,7 +1329,14 @@ function App() {
       toggleFullscreen,
       toggleMenus,
       workItemCount,
+      designCount,
       openDialog,
+      handleSaveToDevice,
+      handleStopLocalSave,
+      localSave,
+      canSaveLocally,
+      vscodeHosted,
+      openChangeDesign,
     ],
   )
 
@@ -1121,8 +1385,14 @@ function App() {
       <SubTabBar
         tabs={listSubTabs(document, drillPath)}
         currentPath={drillPath}
-        onSelect={(path) => {
-          setDrillPath(path)
+        activeId={workspaceView === 'feature' ? 'feature' : undefined}
+        onSelect={(tab) => {
+          if (tab.kind === 'feature') {
+            openChangeDesign()
+            return
+          }
+          setWorkspaceView('diagram')
+          setDrillPath(tab.path)
           clearSelection()
         }}
         onNewFromTemplate={handleNewSubTab}
@@ -1135,32 +1405,69 @@ function App() {
         <main className="canvas-area">
           <DiagramPageTitle
             name={
-              drillPath.length === 0
-                ? document.metadata.name
-                : drillPath[drillPath.length - 1]?.label ?? document.metadata.name
+              workspaceView === 'feature'
+                ? 'Feature & apply'
+                : drillPath.length === 0
+                  ? document.metadata.name
+                  : drillPath[drillPath.length - 1]?.label ?? document.metadata.name
             }
-            isRoot={drillPath.length === 0}
-            statsLabel={`${diagramView.systems.length} systems · ${diagramView.integrations.length} integrations${drillPath.length > 0 ? ' (detail)' : ''}`}
-            onRename={handleRenameCurrentPage}
+            isRoot={workspaceView === 'diagram' && drillPath.length === 0}
+            statsLabel={
+              workspaceView === 'feature'
+                ? `${designCount} feature${designCount === 1 ? '' : 's'}`
+                : `${diagramView.systems.length} systems · ${diagramView.integrations.length} integrations${drillPath.length > 0 ? ' (detail)' : ''}`
+            }
+            onRename={workspaceView === 'feature' ? () => undefined : handleRenameCurrentPage}
             onGoRoot={() => handleNavigateDiagram(0)}
             autosave={
-              <span
-                className={`autosave-status autosave-${autosaveStatus}`}
-                title={
-                  autosaveStatus === 'error'
-                    ? 'Could not autosave (browser storage may be full)'
-                    : autosaveAt
-                      ? `Last autosave ${new Date(autosaveAt).toLocaleString()}`
-                      : 'Changes save automatically in this browser'
-                }
-              >
-                {autosaveStatus === 'saving' && 'Saving…'}
-                {autosaveStatus === 'saved' && `Autosaved${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`}
-                {autosaveStatus === 'error' && 'Autosave failed'}
-                {autosaveStatus === 'idle' && 'Autosave on'}
-              </span>
+              localSave?.needsPermission ? (
+                <button
+                  type="button"
+                  className="autosave-status autosave-error"
+                  title={`Click to resume writing ${localSave.name} on this device`}
+                  onClick={() => void handleSaveToDevice()}
+                >
+                  Resume {localSave.name}
+                </button>
+              ) : (
+                <span
+                  className={`autosave-status autosave-${autosaveStatus}`}
+                  title={
+                    autosaveStatus === 'error'
+                      ? 'Could not autosave (browser storage may be full)'
+                      : vscodeHosted
+                        ? 'Saves to the VS Code workspace JSON file'
+                        : localSave
+                          ? `Saving automatically to ${localSave.name} on this device`
+                          : autosaveAt
+                            ? `Last autosave ${new Date(autosaveAt).toLocaleString()}`
+                            : 'Changes save automatically in this browser. Use File → Save to this device to also write a local JSON file.'
+                  }
+                >
+                  {autosaveStatus === 'saving' &&
+                    (vscodeHosted
+                      ? 'Saving workspace…'
+                      : localSave
+                        ? `Saving ${localSave.name}…`
+                        : 'Saving…')}
+                  {autosaveStatus === 'saved' &&
+                    (vscodeHosted
+                      ? `Saved in VS Code${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`
+                      : localSave
+                        ? `Saved to ${localSave.name}${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`
+                        : `Autosaved${autosaveAt ? ` ${formatAutosaveTime(autosaveAt)}` : ''}`)}
+                  {autosaveStatus === 'error' && 'Autosave failed'}
+                  {autosaveStatus === 'idle' &&
+                    (vscodeHosted
+                      ? 'VS Code workspace'
+                      : localSave
+                        ? `Saving to ${localSave.name}`
+                        : 'Autosave on')}
+                </span>
+              )
             }
           />
+          {workspaceView === 'diagram' && (
           <DiagramBreadcrumb
             documentName={document.metadata.name}
             drillPath={drillPath}
@@ -1168,7 +1475,25 @@ function App() {
             onNavigate={handleNavigateDiagram}
             onRename={handleRenamePathSegment}
           />
+          )}
           <div className="canvas-flow">
+            {workspaceView === 'feature' ? (
+              <ChangeDesignModal
+                variant="page"
+                document={document}
+                focusSystemId={designFocusSystemId}
+                onSave={handleChangeDesigns}
+                onSelectSystem={(id) => {
+                  setWorkspaceView('diagram')
+                  setFocusNodeId(id)
+                }}
+                onManageKeys={() => {
+                  setSettingsTab('ai')
+                  openDialog('settings')
+                }}
+                onClose={() => setWorkspaceView('diagram')}
+              />
+            ) : (
             <ReactFlowProvider>
               <IntegrationCanvas
                 ref={canvasRef}
@@ -1208,10 +1533,13 @@ function App() {
                     openDialog('aiAnalysis')
                   }}
                   onReadSaasMetadata={() => openDialog('saas')}
+                  onOpenChangeDesign={openChangeDesign}
+                  onChangeDesigns={handleChangeDesigns}
                 />
               }
             />
             </ReactFlowProvider>
+            )}
           </div>
         </main>
       </div>
@@ -1372,6 +1700,25 @@ function App() {
               openDialog('settings')
             }}
             onClose={() => closeDialog('aiAnalysis')}
+          />
+        </DialogLayer>
+      )}
+
+      {isDialogOpen('changeDesign') && (
+        <DialogLayer id="changeDesign" stack={dialogStack} onClose={() => closeDialog('changeDesign')}>
+          <ChangeDesignModal
+            document={document}
+            focusSystemId={designFocusSystemId}
+            onSave={handleChangeDesigns}
+            onSelectSystem={(id) => {
+              closeDialog('changeDesign')
+              setFocusNodeId(id)
+            }}
+            onManageKeys={() => {
+              setSettingsTab('ai')
+              openDialog('settings')
+            }}
+            onClose={() => closeDialog('changeDesign')}
           />
         </DialogLayer>
       )}

@@ -20,6 +20,7 @@ interface StoredAutosave {
     id: string
     drillPath: DiagramPath
     document: ArchitectureDocument
+    workspaceView?: 'diagram' | 'feature'
   }>
 }
 
@@ -30,6 +31,7 @@ export function autosaveFingerprint(tabs: ProjectTab[], activeTabId: string): st
       id: tab.id,
       drillPath: tab.drillPath,
       document: tab.document,
+      workspaceView: tab.workspaceView,
     })),
   })
 }
@@ -44,6 +46,7 @@ export function saveProjectAutosave(tabs: ProjectTab[], activeTabId: string): st
       id: tab.id,
       drillPath: tab.drillPath,
       document: tab.document,
+      workspaceView: tab.workspaceView,
     })),
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
@@ -67,6 +70,7 @@ export function loadProjectAutosave(): AutosaveSnapshot | null {
           document: audit.length > 0 ? { ...tab.document, audit } : { ...tab.document, audit: undefined },
           drillPath: Array.isArray(tab.drillPath) ? tab.drillPath : [],
           canvasKey: 0,
+          workspaceView: tab.workspaceView === 'feature' ? 'feature' : 'diagram',
         }
       })
     if (tabs.length === 0) return null

@@ -13,6 +13,7 @@ import {
   type SystemType,
   type EdgeRouting,
 } from '../types'
+import { sanitizeChangeDesigns } from './changeDesign'
 
 export interface IntegrationNodeData extends Record<string, unknown> {
   systemType: SystemType
@@ -31,6 +32,8 @@ export interface IntegrationNodeData extends Record<string, unknown> {
   /** Runtime: show connection ports (touch points) on this node */
   showTouchPoints?: boolean
   isStateContext?: boolean
+  /** Runtime: this node has a coding-agent task in a technical change design */
+  hasChangeTask?: boolean
 }
 
 /** Visual relation of an edge to the currently selected node (canvas-only) */
@@ -218,7 +221,10 @@ export function parseArchitectureJson(json: string): ArchitectureDocument {
     throw new Error('Invalid architecture JSON: requires metadata, systems, and integrations')
   }
 
-  return parsed
+  return {
+    ...parsed,
+    changeDesigns: sanitizeChangeDesigns(parsed.changeDesigns),
+  }
 }
 
 export function serializeArchitecture(document: ArchitectureDocument): string {

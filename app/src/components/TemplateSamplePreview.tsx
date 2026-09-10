@@ -26,6 +26,10 @@ export function TemplateSamplePreview({ id }: TemplateSamplePreviewProps) {
       {id === 'ai-rag' && <RagPreview />}
       {id === 'ai-mlops' && <InfraPreview accent="#7c3aed" labels={['Data', 'Train', 'Serve']} />}
       {id === 'ai-agents' && <AgentsPreview />}
+      {id === 'ai-sdlc' && (
+        <InfraPreview accent="#6366f1" labels={['Intake', 'Build', 'Release']} />
+      )}
+      {id === 'ai-multi-agents' && <AgentsPreview />}
       {id === 'ai-azure' && <InfraPreview accent="#0078d4" labels={['Edge', 'AI', 'Knowledge']} />}
     </div>
   )

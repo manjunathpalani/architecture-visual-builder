@@ -2,11 +2,14 @@ import type { ArchitectureDocument } from '../types'
 import type { DiagramPath } from './diagram'
 import { createEmptyDocument, generateId } from '../utils/jsonIO'
 
+export type WorkspaceView = 'diagram' | 'feature'
+
 export interface ProjectTab {
   id: string
   document: ArchitectureDocument
   canvasKey: number
   drillPath: DiagramPath
+  workspaceView?: WorkspaceView
 }
 
 export function createProjectTab(

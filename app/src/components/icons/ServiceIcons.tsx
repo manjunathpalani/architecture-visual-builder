@@ -971,3 +971,39 @@ function matchIconByLabel(
   }
   return null
 }
+
+export function AiAgentIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <circle cx="12" cy="12" r="10" fill="currentColor" opacity="0.2" />
+      <path d="M12 6v12M6 12h12M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="1.5" />
+    </Icon>
+  )
+}
+
+export function GrokAgentIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <rect x="3" y="5" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M7 9h6M7 13h6M7 17h3" stroke="currentColor" strokeWidth="1.5" />
+    </Icon>
+  )
+}
+
+export function GeminiAgentIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <path d="M12 3l3 7h7l-5.5 4 2 6.5L12 16l-5.5 4 2-6.5L2 10h7z" fill="currentColor" opacity="0.8" />
+    </Icon>
+  )
+}
+
+export function CopilotAgentIcon({ size = 20, ...props }: IconProps) {
+  return (
+    <Icon size={size} {...props}>
+      <circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="16" cy="8" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M12 13v4" stroke="currentColor" strokeWidth="1.5" />
+    </Icon>
+  )
+}

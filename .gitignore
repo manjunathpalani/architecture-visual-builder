@@ -18,7 +18,12 @@ logs/
 npm-debug.log*
 
 # Editor / OS
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+extension/.vscode/*
+!extension/.vscode/launch.json
+!extension/.vscode/tasks.json
 .idea/
 .DS_Store
 Thumbs.db

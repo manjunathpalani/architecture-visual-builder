@@ -12,6 +12,7 @@ import {
   filterByArchitectureState,
   type ArchitectureStateView,
 } from './architectureState'
+import { collectChangeTaskSystemIds } from './changeDesign'
 
 function mergeSystemsPreservingSubDiagrams(
   incoming: SystemNode[],
@@ -180,7 +181,7 @@ export interface SubTabItem {
   id: string
   name: string
   path: DiagramPath
-  kind: 'overview' | 'sub'
+  kind: 'overview' | 'sub' | 'feature'
   stats?: { systems: number; integrations: number }
 }
 
@@ -196,6 +197,13 @@ export function listSubTabs(doc: ArchitectureDocument, currentPath: DiagramPath)
       path: [],
       kind: 'overview',
       stats: { systems: doc.systems.length, integrations: doc.integrations.length },
+    },
+    {
+      id: 'feature',
+      name: 'Feature & apply',
+      path: [],
+      kind: 'feature',
+      stats: { systems: doc.changeDesigns?.length ?? 0, integrations: 0 },
     },
   ]
 
@@ -401,6 +409,7 @@ export function documentToFlowAtPath(
 } {
   const view = getDiagramView(doc, path)
   const filtered = filterByArchitectureState(view.systems, view.integrations, stateView)
+  const tasked = collectChangeTaskSystemIds(doc)
   const flow = documentToFlow({
     metadata: doc.metadata,
     systems: filtered.systems,
@@ -418,6 +427,7 @@ export function documentToFlowAtPath(
         canDrillIn: canDrillInto(system),
         hasSubDiagramContent: hasSubDiagram(system),
         isStateContext: filtered.contextIds.has(system.id),
+        hasChangeTask: tasked.has(system.id),
       },
     }
   })

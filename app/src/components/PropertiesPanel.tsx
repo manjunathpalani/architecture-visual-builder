@@ -1,4 +1,14 @@
+import { useRef } from 'react'
 import { Database, Layers, PanelRight, PictureInPicture2, Scale, X, ZoomIn } from 'lucide-react'
+import { ChangeDesignSection } from './ChangeDesignSection'
+import {
+  EDGE_PROPERTY_GROUPS,
+  PropertyGroup,
+  PropertyGroupToolbar,
+  SYSTEM_PROPERTY_GROUPS,
+  usePropertyGroups,
+  type PropertyGroupId,
+} from './PropertyGroup'
 import type { Edge, Node } from '@xyflow/react'
 import type {
   ArchitectureDocument,
@@ -8,6 +18,7 @@ import type {
   IntegrationFrequency,
   IntegrationProtocol,
   SystemType,
+  TechnicalChangeDesign,
 } from '../types'
 import {
   COLOR_PRESETS,
@@ -32,6 +43,8 @@ import { CodeLinkSection } from './CodeLinkSection'
 import { WorkItemLinkSection } from './WorkItemLinkSection'
 import { InterfaceSpecSection } from './InterfaceSpecSection'
 import { isApiIntegration, isApiNode } from '../utils/apiComponent'
+import { hasCodeLink } from '../utils/codeLink'
+import { tasksForSystem } from '../utils/changeDesign'
 import {
   CHANGE_STATUS_HINTS,
   CHANGE_STATUS_LABELS,
@@ -63,6 +76,8 @@ interface PropertiesPanelProps {
   onDrillInto: (systemId: string, label: string) => void
   onAnalyzeCapability?: (label: string) => void
   onReadSaasMetadata?: () => void
+  onOpenChangeDesign?: (systemId: string) => void
+  onChangeDesigns?: (designs: TechnicalChangeDesign[]) => void
   variant?: 'side' | 'flyout'
   onDock?: () => void
   onUndock?: () => void
@@ -94,11 +109,26 @@ export function PropertiesPanel({
   onDrillInto,
   onAnalyzeCapability,
   onReadSaasMetadata,
+  onOpenChangeDesign,
+  onChangeDesigns,
   variant = 'side',
   onDock,
   onUndock,
   onCloseFlyout,
 }: PropertiesPanelProps) {
+  const { isOpen, toggle, expandAll, mergeAll } = usePropertyGroups()
+  const formRef = useRef<HTMLDivElement>(null)
+
+  const expandGroups = (ids: PropertyGroupId[]) => {
+    expandAll(ids)
+    window.requestAnimationFrame(() => {
+      const form = formRef.current
+      if (!form) return
+      const flyout = form.closest('.properties-flyout')
+      const scroller = (flyout?.querySelector('.property-form') as HTMLElement | null) ?? form.closest('.palette-groups')
+      if (scroller instanceof HTMLElement) scroller.scrollTop = 0
+    })
+  }
   const headerActions = (onDock || onUndock || onCloseFlyout) && (
     <div className="properties-header-actions">
       {onUndock && (
@@ -159,7 +189,19 @@ export function PropertiesPanel({
           </div>
           {headerActions}
         </div>
-        <div className="property-form">
+        <div className="property-form" ref={formRef}>
+          <PropertyGroupToolbar
+            onExpandAll={() => expandGroups(SYSTEM_PROPERTY_GROUPS)}
+            onMergeAll={mergeAll}
+          />
+
+          <PropertyGroup
+            id="identity"
+            title="Identity"
+            summary={data.label}
+            expanded={isOpen('identity')}
+            onToggle={toggle}
+          >
           <label>
             Name
             <input
@@ -167,7 +209,15 @@ export function PropertiesPanel({
               onChange={(e) => onUpdateNode(selectedNode.id, { label: e.target.value })}
             />
           </label>
+          </PropertyGroup>
 
+          <PropertyGroup
+            id="appearance"
+            title="Appearance"
+            summary={parseNodeDisplay(data.properties) === 'icon' ? 'Icon' : 'Box'}
+            expanded={isOpen('appearance')}
+            onToggle={toggle}
+          >
           {!isNote && !isGroup && !isShape && (
             <div className="node-display-section">
               <span className="color-picker-label">Appearance</span>
@@ -422,7 +472,15 @@ export function PropertiesPanel({
               </select>
             </label>
           )}
+          </PropertyGroup>
 
+          <PropertyGroup
+            id="details"
+            title="Details"
+            summary={data.category || data.systemType}
+            expanded={isOpen('details')}
+            onToggle={toggle}
+          >
           {isNote && (
             <label>
               Note Content
@@ -510,8 +568,16 @@ export function PropertiesPanel({
               }
             />
           </label>
+          </PropertyGroup>
 
           {!isNote && (
+          <PropertyGroup
+            id="state"
+            title="Architecture state"
+            summary={CHANGE_STATUS_LABELS[parseChangeStatus(data.properties.changeStatus)]}
+            expanded={isOpen('state')}
+            onToggle={toggle}
+          >
             <label>
               Architecture state
               <select
@@ -532,20 +598,20 @@ export function PropertiesPanel({
                 {CHANGE_STATUS_HINTS[parseChangeStatus(data.properties.changeStatus)]}
               </span>
             </label>
+          </PropertyGroup>
           )}
 
-          {(isApiNode(data) || data.properties.interfaceSpec) && (
-            <InterfaceSpecSection
-              interfaceSpecJson={data.properties.interfaceSpec}
-              defaultTitle={data.label}
-              onChange={(json) =>
-                onUpdateNode(selectedNode.id, {
-                  properties: { ...data.properties, interfaceSpec: json || undefined },
-                })
-              }
-            />
-          )}
-
+          <PropertyGroup
+            id="feature"
+            title="Feature / apply"
+            summary={
+              tasksForSystem(document, selectedNode.id).length > 0
+                ? `${tasksForSystem(document, selectedNode.id).length} work item${tasksForSystem(document, selectedNode.id).length === 1 ? '' : 's'}`
+                : undefined
+            }
+            expanded={isOpen('feature')}
+            onToggle={toggle}
+          >
           {(data.systemType === 'saas' || data.systemType === 'powerplatform') && onReadSaasMetadata && (
             <div className="sub-diagram-section">
               <div className="sub-diagram-header">
@@ -587,6 +653,34 @@ export function PropertiesPanel({
             </div>
           )}
 
+          {!isGroup && !isShape && !isNote && onOpenChangeDesign && onChangeDesigns && (
+            <ChangeDesignSection
+              document={document}
+              systemId={selectedNode.id}
+              onChangeDesigns={onChangeDesigns}
+              onOpenDesign={onOpenChangeDesign}
+            />
+          )}
+          </PropertyGroup>
+
+          <PropertyGroup
+            id="links"
+            title="Code & work items"
+            summary={hasCodeLink(data.properties) ? 'Linked' : undefined}
+            expanded={isOpen('links')}
+            onToggle={toggle}
+          >
+          {(isApiNode(data) || data.properties.interfaceSpec) && (
+            <InterfaceSpecSection
+              interfaceSpecJson={data.properties.interfaceSpec}
+              defaultTitle={data.label}
+              onChange={(json) =>
+                onUpdateNode(selectedNode.id, {
+                  properties: { ...data.properties, interfaceSpec: json || undefined },
+                })
+              }
+            />
+          )}
           {!isGroup && !isShape && !isNote && (
             <>
               <CodeLinkSection
@@ -605,10 +699,17 @@ export function PropertiesPanel({
               />
             </>
           )}
+          </PropertyGroup>
 
+          <PropertyGroup
+            id="structure"
+            title="Internal diagram"
+            expanded={isOpen('structure')}
+            onToggle={toggle}
+          >
           {(() => {
             const system = findSystemAtPath(document, drillPath, selectedNode.id)
-            if (!system || !canDrillInto(system)) return null
+            if (!system || !canDrillInto(system)) return <p className="code-link-hint">No inner diagram for this item.</p>
             const stats = getSubDiagramStats(system)
             const hasContent = hasSubDiagram(system)
             return (
@@ -633,6 +734,7 @@ export function PropertiesPanel({
               </div>
             )
           })()}
+          </PropertyGroup>
 
           <button
             type="button"
@@ -657,7 +759,18 @@ export function PropertiesPanel({
           </div>
           {headerActions}
         </div>
-        <div className="property-form">
+        <div className="property-form" ref={formRef}>
+          <PropertyGroupToolbar
+            onExpandAll={() => expandGroups(EDGE_PROPERTY_GROUPS)}
+            onMergeAll={mergeAll}
+          />
+          <PropertyGroup
+            id="identity"
+            title="Identity"
+            summary={data.label}
+            expanded={isOpen('identity')}
+            onToggle={toggle}
+          >
           <label>
             Integration Name
             <input
@@ -665,6 +778,14 @@ export function PropertiesPanel({
               onChange={(e) => onUpdateEdge(selectedEdge.id, { label: e.target.value })}
             />
           </label>
+          </PropertyGroup>
+          <PropertyGroup
+            id="line"
+            title="Line & arrows"
+            summary={EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.label}
+            expanded={isOpen('line')}
+            onToggle={toggle}
+          >
           <label>
             Line routing
             <select
@@ -734,6 +855,14 @@ export function PropertiesPanel({
               Select the connector, then pick which way the arrow points. Reverse swaps source and target arrows.
             </span>
           </div>
+          </PropertyGroup>
+          <PropertyGroup
+            id="spec"
+            title="Contract"
+            summary={data.protocol}
+            expanded={isOpen('spec')}
+            onToggle={toggle}
+          >
           <label>
             Protocol
             <select
@@ -856,6 +985,7 @@ export function PropertiesPanel({
             }}
             onChange={(fields) => onUpdateEdge(selectedEdge.id, { ...fields })}
           />
+          </PropertyGroup>
 
           <button
             type="button"
