@@ -18,9 +18,10 @@ export default defineConfig({
     // Vite 8 uses Oxc minify by default; avoid requiring esbuild for this step
     minify: true,
     target: 'es2020',
-    rollupOptions: {
+    // One offline chunk is the point of this build; the 500 kB warning is noise.
+    chunkSizeWarningLimit: 5000,
+    rolldownOptions: {
       output: {
-        // Vite 8 / Rolldown: disable code splitting for a single chunk
         codeSplitting: false,
         entryFileNames: 'app.js',
         chunkFileNames: 'app.js',

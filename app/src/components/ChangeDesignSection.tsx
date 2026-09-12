@@ -5,7 +5,9 @@ import {
   CHANGE_KIND_LABELS,
   applyComponentChange,
   copyText,
+  formatTaskCodePath,
   generateComponentInstruction,
+  listDesignableSystems,
   patchTaskInDesigns,
   tasksForSystem,
 } from '../utils/changeDesign'
@@ -24,6 +26,7 @@ export function ChangeDesignSection({
   onOpenDesign,
 }: ChangeDesignSectionProps) {
   const linked = tasksForSystem(document, systemId)
+  const systems = listDesignableSystems(document)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -78,8 +81,8 @@ export function ChangeDesignSection({
         <span>Feature / apply</span>
       </div>
       <p className="sub-diagram-desc">
-        Translate this component’s new or update architecture change into an agent instruction, then
-        apply it to the code.
+        Translate this component’s new or update architecture change into an agent instruction with
+        the code path and where to add or update, then apply it.
       </p>
 
       {linked.length === 0 ? (
@@ -93,11 +96,19 @@ export function ChangeDesignSection({
         </button>
       ) : (
         <div className="change-design-section-list">
-          {linked.map(({ design, task }) => (
+          {linked.map(({ design, task }) => {
+            const story = (design.stories ?? []).find((item) => item.id === task.storyId)
+            const system = systems.find((item) => item.id === systemId)
+            const path = formatTaskCodePath(task, system)
+            return (
             <div key={`${design.id}-${task.id}`} className="change-design-section-item">
               <strong>
                 {design.title.trim() || 'Untitled feature'} · {CHANGE_KIND_LABELS[task.changeKind ?? 'update']}
               </strong>
+              {story && <p>Story: {story.title.trim() || 'Untitled story'}</p>}
+              {path && <p>Code path: {path}</p>}
+              {task.addAt?.trim() && <p>Add: {task.addAt.trim()}</p>}
+              {task.updateAt?.trim() && <p>Update: {task.updateAt.trim()}</p>}
               {task.intent && <p>{task.intent}</p>}
               <div className="change-design-section-actions">
                 <button
@@ -171,7 +182,8 @@ export function ChangeDesignSection({
                 </button>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
       {message && <p className="code-link-hint">{message}</p>}

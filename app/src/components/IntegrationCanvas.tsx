@@ -16,12 +16,14 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
+  SelectionMode,
   addEdge,
   reconnectEdge,
   useEdgesState,
   useNodesState,
   useNodesInitialized,
   useReactFlow,
+  useStoreApi,
   useViewport,
   type Connection,
   type Edge,
@@ -29,10 +31,10 @@ import {
   type NodeChange,
   type OnConnect,
 } from '@xyflow/react'
-import { SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Pause, Play, SlidersHorizontal, Sparkles } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import type { DrawingShapeKind, PaletteItem } from '../types'
-import { DRAWING_SHAPE_LABELS, getFlowNodeType } from '../types'
+import { getFlowNodeType } from '../types'
 import {
   generateId,
   type EdgeFocusRelation,
@@ -62,6 +64,8 @@ import {
   DRAWING_COLORS,
   RECT_HANDLES,
   arrowHead,
+  boxesIntersect,
+  drawingBounds,
   hitTestDrawing,
   hitTestRectHandle,
   pathToSvg,
@@ -90,9 +94,14 @@ import {
   type DiagramImageFormat,
 } from '../utils/captureDiagram'
 import {
+  findPathBetween,
+  isolateFlowPath,
   loadFlowStyle,
+  longestFlowPath,
   saveFlowStyle,
+  traceFromSinglePath,
   traceSelectionFlow,
+  type FlowPath,
   type FlowStyle,
   type FlowTrace,
 } from '../utils/flowTrace'
@@ -125,7 +134,91 @@ const nodeTypes = {
 }
 const edgeTypes = { integration: IntegrationEdge }
 
-function renderDrawingElement(el: DrawingElement, selected: boolean) {
+function swallowNextClick() {
+  const swallow = (event: MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    window.removeEventListener('click', swallow, true)
+  }
+  window.addEventListener('click', swallow, true)
+}
+
+function DrawingRectTextEditor({
+  rect,
+  viewport,
+  color,
+  fontSize,
+  initialValue,
+  onCommit,
+  onCancel,
+}: {
+  rect: { x: number; y: number; width: number; height: number }
+  viewport: { x: number; y: number; zoom: number }
+  color: string
+  fontSize: number
+  initialValue: string
+  onCommit: (value: string) => void
+  onCancel: () => void
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const [value, setValue] = useState(initialValue)
+  const openedAt = useRef(Date.now())
+
+  useEffect(() => {
+    openedAt.current = Date.now()
+    const frame = window.requestAnimationFrame(() => {
+      ref.current?.focus()
+      ref.current?.select()
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  const commit = () => {
+    if (Date.now() - openedAt.current < 250) {
+      ref.current?.focus()
+      return
+    }
+    onCommit(value)
+  }
+
+  return (
+    <textarea
+      ref={ref}
+      className="drawing-shape-text-editor nodrag nopan nowheel"
+      style={{
+        left: viewport.x + rect.x * viewport.zoom,
+        top: viewport.y + rect.y * viewport.zoom,
+        width: Math.max(48, rect.width * viewport.zoom),
+        height: Math.max(32, rect.height * viewport.zoom),
+        fontSize: Math.max(11, fontSize * viewport.zoom),
+        color,
+      }}
+      value={value}
+      placeholder="Add text"
+      aria-label="Rectangle text"
+      onChange={(event) => setValue(event.target.value)}
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          onCancel()
+        }
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault()
+          onCommit(value)
+        }
+      }}
+    />
+  )
+}
+
+function renderDrawingElement(
+  el: DrawingElement,
+  selected: boolean,
+  options?: { hideText?: boolean },
+) {
   const stroke = selected ? '#6366f1' : el.color
   const strokeWidth = selected ? el.strokeWidth + 1 : el.strokeWidth
 
@@ -176,17 +269,40 @@ function renderDrawingElement(el: DrawingElement, selected: boolean) {
     case 'rectangle': {
       if (el.points.length < 2) return null
       const rect = rectFromPoints(el.points[0], el.points[1])
+      const label = el.text?.trim() ?? ''
+      const showPlaceholder = selected && !label && !options?.hideText
       return (
-        <rect
-          x={rect.x}
-          y={rect.y}
-          width={rect.width}
-          height={rect.height}
-          fill={el.fill ?? 'transparent'}
-          stroke={stroke}
-          strokeWidth={strokeWidth}
-          rx={6}
-        />
+        <g>
+          <rect
+            x={rect.x}
+            y={rect.y}
+            width={rect.width}
+            height={rect.height}
+            fill={el.fill ?? 'transparent'}
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+            rx={6}
+          />
+          {!options?.hideText && (label || showPlaceholder) ? (
+            <foreignObject
+              x={rect.x + 6}
+              y={rect.y + 6}
+              width={Math.max(1, rect.width - 12)}
+              height={Math.max(1, rect.height - 12)}
+              style={{ overflow: 'visible', pointerEvents: 'none' }}
+            >
+              <div
+                className={`drawing-shape-label ${showPlaceholder ? 'is-placeholder' : ''}`}
+                style={{
+                  color: showPlaceholder ? '#64748b' : stroke,
+                  fontSize: el.fontSize ?? 14,
+                }}
+              >
+                {label || 'Add text'}
+              </div>
+            </foreignObject>
+          ) : null}
+        </g>
       )
     }
     case 'text': {
@@ -266,6 +382,7 @@ function reconcileFlowNodes(
         isFlowFocus: old.data.isFlowFocus,
         isFlowNeighbor: old.data.isFlowNeighbor,
         isFlowPath: old.data.isFlowPath,
+        isFlowPlayCurrent: old.data.isFlowPlayCurrent,
         showTouchPoints: old.data.showTouchPoints,
       },
     }
@@ -298,6 +415,8 @@ function reconcileFlowEdges(
       oldData.description === incomingData.description &&
       oldData.interfaceSpec === incomingData.interfaceSpec &&
       oldData.color === incomingData.color &&
+      oldData.lineStyle === incomingData.lineStyle &&
+      oldData.lineWeight === incomingData.lineWeight &&
       oldData.changeStatus === incomingData.changeStatus &&
       oldData.routing === incomingData.routing &&
       (oldData.waypoints?.length ?? 0) === (incomingData.waypoints?.length ?? 0) &&
@@ -324,6 +443,8 @@ function reconcileFlowEdges(
         focusNodeId: oldData.focusNodeId,
         flowPathColor: oldData.flowPathColor,
         colorBy: oldData.colorBy,
+        flowHopIndex: oldData.flowHopIndex,
+        flowPlayCurrent: oldData.flowPlayCurrent,
       },
     }
   })
@@ -360,6 +481,7 @@ export interface IntegrationCanvasHandle {
   cutSelection: () => Promise<boolean>
   pasteClipboard: () => Promise<boolean>
   duplicateSelection: () => Promise<boolean>
+  selectAll: () => void
 }
 
 export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, IntegrationCanvasProps>(function IntegrationCanvas({
@@ -386,6 +508,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     cutSelection: async () => false,
     pasteClipboard: async () => false,
     duplicateSelection: async () => false,
+    selectAll: () => undefined as void,
   })
   const {
     screenToFlowPosition,
@@ -397,12 +520,16 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     setNodes: setFlowNodes,
     fitView,
   } = useReactFlow()
+  const store = useStoreApi()
   const viewport = useViewport()
   const nodesInitialized = useNodesInitialized()
   const didFitRef = useRef(false)
 
   const diagramView = getDiagramView(document, diagramPath)
   const drawings = diagramView.drawings
+  const drawingsRef = useRef(drawings)
+  drawingsRef.current = drawings
+  const ignoreDrawingClearRef = useRef(false)
 
   useImperativeHandle(
     ref,
@@ -431,6 +558,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       cutSelection: () => clipboardApiRef.current.cutSelection(),
       pasteClipboard: () => clipboardApiRef.current.pasteClipboard(),
       duplicateSelection: () => clipboardApiRef.current.duplicateSelection(),
+      selectAll: () => clipboardApiRef.current.selectAll(),
     }),
     [fitView, getNodes, getViewport, setViewport],
   )
@@ -438,19 +566,85 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   const [drawTool, setDrawTool] = useState<DrawingTool>('select')
   const [drawColor, setDrawColor] = useState(DRAWING_COLORS[0])
   const [selectedDrawingId, setSelectedDrawingId] = useState<string | null>(null)
+  const [selectedDrawingIds, setSelectedDrawingIds] = useState<Set<string>>(() => new Set())
+  const [editingDrawingId, setEditingDrawingId] = useState<string | null>(null)
   const [draftPoints, setDraftPoints] = useState<DrawingPoint[]>([])
   const [isDrawing, setIsDrawing] = useState(false)
-  const [drawingOverride, setDrawingOverride] = useState<DrawingElement | null>(null)
+  const [drawingOverrides, setDrawingOverrides] = useState<Map<string, DrawingElement>>(() => new Map())
   const drawingEditRef = useRef<
     | { kind: 'resize'; id: string; handle: RectHandle; startRect: DrawnRect }
-    | { kind: 'move'; id: string; startPoint: DrawingPoint; startPoints: DrawingPoint[] }
+    | { kind: 'move'; id: string; startPoint: DrawingPoint; originals: DrawingElement[] }
     | null
   >(null)
+  const drawingMoveWithNodesRef = useRef<{
+    start: { x: number; y: number }
+    originals: DrawingElement[]
+  } | null>(null)
+
+  const applyDrawingSelection = useCallback((ids: string[], primary?: string | null) => {
+    const unique = [...new Set(ids)]
+    const focus = primary && unique.includes(primary) ? primary : unique[unique.length - 1] ?? null
+    setSelectedDrawingIds((current) => {
+      if (current.size === unique.length && unique.every((id) => current.has(id))) return current
+      return new Set(unique)
+    })
+    setSelectedDrawingId((current) => (current === focus ? current : focus))
+    if (!focus) setEditingDrawingId((current) => (current == null ? current : null))
+  }, [])
+
+  useEffect(() => {
+    let lastKey = ''
+    return store.subscribe((state) => {
+      const rect = state.userSelectionRect
+      if (!rect || rect.width < 4 || rect.height < 4) return
+      const key = `${rect.x.toFixed(1)},${rect.y.toFixed(1)},${rect.width.toFixed(1)},${rect.height.toFixed(1)}`
+      if (key === lastKey) return
+      lastKey = key
+      const dom = state.domNode
+      if (!dom) return
+      ignoreDrawingClearRef.current = true
+      const box = dom.getBoundingClientRect()
+      const a = screenToFlowPosition({ x: box.left + rect.x, y: box.top + rect.y })
+      const b = screenToFlowPosition({
+        x: box.left + rect.x + rect.width,
+        y: box.top + rect.y + rect.height,
+      })
+      const flowBox = {
+        x: Math.min(a.x, b.x),
+        y: Math.min(a.y, b.y),
+        width: Math.abs(b.x - a.x),
+        height: Math.abs(b.y - a.y),
+      }
+      const hits = drawingsRef.current.filter((drawing) => {
+        const bounds = drawingBounds(drawing)
+        return bounds ? boxesIntersect(bounds, flowBox) : false
+      })
+      applyDrawingSelection(
+        hits.map((drawing) => drawing.id),
+        hits.find((drawing) => drawing.type === 'rectangle')?.id ?? hits[0]?.id ?? null,
+      )
+    })
+  }, [applyDrawingSelection, screenToFlowPosition, store])
+
+  useEffect(() => {
+    const onUp = () => {
+      window.setTimeout(() => {
+        ignoreDrawingClearRef.current = false
+      }, 250)
+    }
+    window.addEventListener('pointerup', onUp)
+    return () => window.removeEventListener('pointerup', onUp)
+  }, [])
   /** Selected box id — drives connector flow highlighting */
   const [flowFocusId, setFlowFocusId] = useState<string | null>(null)
   const [flowEdgeId, setFlowEdgeId] = useState<string | null>(null)
+  const [flowEndId, setFlowEndId] = useState<string | null>(null)
   const [flowStyle, setFlowStyle] = useState<FlowStyle>(loadFlowStyle)
   const [flowTrace, setFlowTrace] = useState<FlowTrace | null>(null)
+  const [highlightedPathId, setHighlightedPathId] = useState<string | null>(null)
+  const [playHopIndex, setPlayHopIndex] = useState(-1)
+  const [isPlayingFlow, setIsPlayingFlow] = useState(false)
+  const pendingPlayRef = useRef(false)
   const [stateView, setStateView] = useState<ArchitectureStateView>(loadArchitectureStateView)
   const [sideCollapsed, setSideCollapsed] = useState(loadCanvasSideCollapsed)
   const [layoutLocked, setLayoutLocked] = useState(loadDiagramLayoutLocked)
@@ -491,41 +685,70 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const isShapeTool = isShapeDrawingTool(drawTool)
   const isDrawMode = drawTool !== 'select'
+  const shapeSelectEnabled = isShapeTool || !isDrawMode
 
   const nodesRef = useRef(nodes)
   const edgesRef = useRef(edges)
   const flowStyleRef = useRef(flowStyle)
   const flowFocusIdRef = useRef(flowFocusId)
   const flowEdgeIdRef = useRef(flowEdgeId)
+  const flowEndIdRef = useRef(flowEndId)
+  const highlightedPathIdRef = useRef(highlightedPathId)
   nodesRef.current = nodes
   edgesRef.current = edges
   flowStyleRef.current = flowStyle
   flowFocusIdRef.current = flowFocusId
   flowEdgeIdRef.current = flowEdgeId
+  flowEndIdRef.current = flowEndId
+  highlightedPathIdRef.current = highlightedPathId
 
   const applyFlowFocus = useCallback((
     selectedId: string | null,
     selectedEdgeId: string | null = null,
     force = false,
+    endNodeId: string | null = null,
   ) => {
-    if (!force && selectedId === flowFocusIdRef.current && selectedEdgeId === flowEdgeIdRef.current) {
+    if (
+      !force &&
+      selectedId === flowFocusIdRef.current &&
+      selectedEdgeId === flowEdgeIdRef.current &&
+      endNodeId === flowEndIdRef.current
+    ) {
       return
+    }
+
+    if (!force) {
+      pendingPlayRef.current = false
+      highlightedPathIdRef.current = null
+      setHighlightedPathId(null)
+      setIsPlayingFlow(false)
+      setPlayHopIndex(-1)
     }
 
     flowFocusIdRef.current = selectedId
     flowEdgeIdRef.current = selectedEdgeId
+    flowEndIdRef.current = endNodeId
     setFlowFocusId(selectedId)
     setFlowEdgeId(selectedEdgeId)
+    setFlowEndId(endNodeId)
 
     const style = flowStyleRef.current
     const currentEdges = edgesRef.current
     const labels = new Map(nodesRef.current.map((n) => [n.id, n.data.label]))
     const hasSelection = Boolean(selectedId || selectedEdgeId)
-    const useChain = style.scope === 'chain'
-    const showTouches = style.scope === 'touches' || style.scope === 'chain'
-    const trace = hasSelection
-      ? traceSelectionFlow(currentEdges, labels, selectedId, selectedEdgeId, useChain)
-      : null
+    const useChain = style.scope === 'chain' || Boolean(endNodeId)
+    const showTouches = style.scope === 'touches' || style.scope === 'chain' || Boolean(endNodeId)
+    let trace: FlowTrace | null = null
+    if (hasSelection && selectedId && endNodeId) {
+      const between = findPathBetween(currentEdges, labels, selectedId, endNodeId)
+      trace = between ? traceFromSinglePath(between) : traceSelectionFlow(currentEdges, labels, selectedId, selectedEdgeId, true)
+    } else if (hasSelection) {
+      trace = traceSelectionFlow(currentEdges, labels, selectedId, selectedEdgeId, useChain)
+    }
+    if (trace && highlightedPathIdRef.current) {
+      const isolated = isolateFlowPath(trace, highlightedPathIdRef.current)
+      if (isolated.paths.length > 0) trace = isolated
+    }
     setFlowTrace(trace)
 
     setNodes((nds) => {
@@ -596,6 +819,51 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     saveFlowStyle(next)
   }
 
+  const activeFlowPath: FlowPath | null = highlightedPathId
+    ? flowTrace?.paths.find((path) => path.id === highlightedPathId) ?? null
+    : flowEndId
+      ? flowTrace?.paths[0] ?? null
+      : flowStyle.scope === 'chain' || isPlayingFlow
+        ? longestFlowPath(flowTrace)
+        : null
+
+  const highlightFlowPath = (pathId: string | null) => {
+    highlightedPathIdRef.current = pathId
+    setHighlightedPathId(pathId)
+    if (!pathId) {
+      setIsPlayingFlow(false)
+      setPlayHopIndex(-1)
+    }
+    applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true, flowEndIdRef.current)
+  }
+
+  const playFlow = (pathId?: string) => {
+    const path =
+      (pathId ? flowTrace?.paths.find((item) => item.id === pathId) : null) ??
+      (highlightedPathIdRef.current
+        ? flowTrace?.paths.find((item) => item.id === highlightedPathIdRef.current)
+        : null) ??
+      longestFlowPath(flowTrace)
+    if (!path || path.edgeIds.length === 0) {
+      if (flowStyle.scope !== 'chain') {
+        pendingPlayRef.current = true
+        updateFlowStyle({ scope: 'chain', endToEnd: true })
+      }
+      return
+    }
+    highlightedPathIdRef.current = path.id
+    setHighlightedPathId(path.id)
+    setPlayHopIndex(0)
+    setIsPlayingFlow(true)
+    applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true, flowEndIdRef.current)
+  }
+
+  const stopFlowPlay = () => {
+    pendingPlayRef.current = false
+    setIsPlayingFlow(false)
+    setPlayHopIndex(-1)
+  }
+
   const updateStateView = (view: ArchitectureStateView) => {
     setStateView(view)
     saveArchitectureStateView(view)
@@ -640,14 +908,83 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const selectDrawTool = (tool: DrawingTool) => {
     setDrawTool(tool)
-    setSelectedDrawingId(null)
+    applyDrawingSelection([])
     setDraftPoints([])
     setIsDrawing(false)
   }
 
   useEffect(() => {
-    applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true)
+    applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true, flowEndIdRef.current)
   }, [applyFlowFocus, flowStyle.colorBy, flowStyle.scope])
+
+  useEffect(() => {
+    if (!pendingPlayRef.current || !flowTrace || flowTrace.paths.length === 0) return
+    pendingPlayRef.current = false
+    const path = longestFlowPath(flowTrace)
+    if (!path) return
+    highlightedPathIdRef.current = path.id
+    setHighlightedPathId(path.id)
+    setPlayHopIndex(0)
+    setIsPlayingFlow(true)
+    applyFlowFocus(flowFocusIdRef.current, flowEdgeIdRef.current, true, flowEndIdRef.current)
+  }, [applyFlowFocus, flowTrace])
+
+  useEffect(() => {
+    if (!isPlayingFlow) return
+    const path =
+      (highlightedPathId ? flowTrace?.paths.find((item) => item.id === highlightedPathId) : null) ??
+      longestFlowPath(flowTrace)
+    if (!path || path.edgeIds.length === 0) {
+      setIsPlayingFlow(false)
+      return
+    }
+    const timer = window.setInterval(() => {
+      setPlayHopIndex((index) => {
+        const next = index + 1
+        return next >= path.edgeIds.length ? 0 : next
+      })
+    }, 1100)
+    return () => window.clearInterval(timer)
+  }, [flowTrace, highlightedPathId, isPlayingFlow])
+
+  useEffect(() => {
+    const path =
+      highlightedPathId
+        ? flowTrace?.paths.find((item) => item.id === highlightedPathId) ?? null
+        : flowEndId
+          ? flowTrace?.paths[0] ?? null
+          : null
+    const currentEdgeId = isPlayingFlow && path ? path.edgeIds[Math.max(0, playHopIndex)] ?? null : null
+    const currentNodeId =
+      isPlayingFlow && path
+        ? path.nodeIds[Math.min(Math.max(0, playHopIndex) + 1, path.nodeIds.length - 1)] ?? null
+        : null
+
+    setEdges((eds) => {
+      let changed = false
+      const next = eds.map((edge) => {
+        const hopIndex = path ? path.edgeIds.indexOf(edge.id) : -1
+        const flowHopIndex = hopIndex >= 0 ? hopIndex + 1 : undefined
+        const flowPlayCurrent = edge.id === currentEdgeId
+        const data = edge.data as IntegrationEdgeData
+        if (data.flowHopIndex === flowHopIndex && data.flowPlayCurrent === flowPlayCurrent) return edge
+        changed = true
+        return { ...edge, data: { ...data, flowHopIndex, flowPlayCurrent } }
+      })
+      return changed ? next : eds
+    })
+
+    setNodes((nds) => {
+      let changed = false
+      const next = nds.map((node) => {
+        const isFlowPlayCurrent = node.id === currentNodeId
+        if (node.data.isFlowPlayCurrent === isFlowPlayCurrent) return node
+        changed = true
+        return { ...node, data: { ...node.data, isFlowPlayCurrent } }
+      })
+      return changed ? next : nds
+    })
+  }, [flowEndId, flowTrace, highlightedPathId, isPlayingFlow, playHopIndex, setEdges, setNodes])
 
   useEffect(() => {
     if (!nodesInitialized || nodes.length === 0 || didFitRef.current) return
@@ -690,9 +1027,13 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       saveDrawings([...drawings, element])
       setDraftPoints([])
       setIsDrawing(false)
-      if (type === 'rectangle') setSelectedDrawingId(element.id)
+      if (type === 'rectangle') {
+        applyDrawingSelection([element.id], element.id)
+        setEditingDrawingId(element.id)
+        swallowNextClick()
+      }
     },
-    [drawColor, drawings, saveDrawings],
+    [applyDrawingSelection, drawColor, drawings, saveDrawings],
   )
 
   const commitShapeNode = useCallback(
@@ -705,9 +1046,10 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         type: 'shape',
         position: { x: rect.x, y: rect.y },
         zIndex: 0,
+        selected: true,
         data: {
           systemType: 'shape',
-          label: DRAWING_SHAPE_LABELS[kind],
+          label: '',
           category: 'Drawing',
           properties: {
             shape: kind,
@@ -720,16 +1062,23 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         },
         style: { width, height },
       }
-      setNodes((nds) => {
-        const updated = nds.concat(newNode)
-        syncDocument(updated, edges)
-        return updated
-      })
+      pendingSelectRef.current = new Set([newNode.id])
+      const updated = [...nodesRef.current.map((node) => ({ ...node, selected: false })), newNode]
+      nodesRef.current = updated
+      setNodes(updated)
+      syncDocument(updated, edgesRef.current)
       setDraftPoints([])
       setIsDrawing(false)
-      setSelectedDrawingId(null)
+      applyDrawingSelection([])
+      applyFlowFocus(null)
+      onSelectionChange(newNode, null)
+      swallowNextClick()
+      window.setTimeout(() => {
+        setNodes((current) => current.map((node) => ({ ...node, selected: node.id === newNode.id })))
+        setEditingNodeId(newNode.id)
+      }, 40)
     },
-    [drawColor, edges, setNodes, syncDocument],
+    [applyDrawingSelection, applyFlowFocus, drawColor, onSelectionChange, setNodes, syncDocument],
   )
 
   const flowPoint = useCallback(
@@ -738,11 +1087,50 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     [screenToFlowPosition],
   )
 
+  const handleShapePaneMouseDown = useCallback(
+    (event: React.MouseEvent) => {
+      if (!isShapeTool || layoutLocked || event.button !== 0) return
+      const target = event.target as HTMLElement
+      if (!target.closest('.react-flow__pane')) return
+      if (
+        target.closest(
+          '.react-flow__node, .react-flow__edge, .react-flow__handle, .react-flow__resize-control, .react-flow__nodesselection, .react-flow__minimap, .react-flow__controls, .floating-toolbar',
+        )
+      ) {
+        return
+      }
+      event.preventDefault()
+      const start = flowPoint(event)
+      setIsDrawing(true)
+      setDraftPoints([start])
+      applyDrawingSelection([])
+      let latest: DrawingPoint[] = [start, start]
+      const onMove = (move: MouseEvent) => {
+        const point = screenToFlowPosition({ x: move.clientX, y: move.clientY })
+        latest = [start, point]
+        setDraftPoints(latest)
+      }
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove)
+        window.removeEventListener('mouseup', onUp)
+        if (!isShapeDrawingTool(drawTool)) {
+          setIsDrawing(false)
+          setDraftPoints([])
+          return
+        }
+        commitShapeNode(shapeKindFromTool(drawTool), latest[0], latest[1] ?? latest[0])
+      }
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('mouseup', onUp)
+    },
+    [applyDrawingSelection, commitShapeNode, drawTool, flowPoint, isShapeTool, layoutLocked, screenToFlowPosition],
+  )
+
   const beginRectangleEdit = useCallback(
     (
       edit:
         | { kind: 'resize'; id: string; handle: RectHandle; startRect: DrawnRect }
-        | { kind: 'move'; id: string; startPoint: DrawingPoint; startPoints: DrawingPoint[] },
+        | { kind: 'move'; id: string; startPoint: DrawingPoint; originals: DrawingElement[] },
     ) => {
       drawingEditRef.current = edit
       setIsDrawing(false)
@@ -765,13 +1153,17 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           beginRectangleEdit({ kind: 'resize', id: selected.id, handle, startRect: rect })
           return
         }
-        if (drawTool === 'select' && hitTestDrawing(selected, point)) {
+        if (drawTool !== 'eraser' && drawTool !== 'text' && hitTestDrawing(selected, point)) {
           event.stopPropagation()
+          const group = drawings.filter((drawing) => selectedDrawingIds.has(drawing.id))
           beginRectangleEdit({
             kind: 'move',
             id: selected.id,
             startPoint: point,
-            startPoints: selected.points.map((p) => ({ ...p })),
+            originals: (group.length > 0 ? group : [selected]).map((drawing) => ({
+              ...drawing,
+              points: drawing.points.map((p) => ({ ...p })),
+            })),
           })
           return
         }
@@ -781,6 +1173,24 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         const hit = [...drawings].reverse().find((d) => hitTestDrawing(d, point))
         if (hit) saveDrawings(drawings.filter((d) => d.id !== hit.id))
         return
+      }
+
+      if (drawTool !== 'text') {
+        const hit = [...drawings].reverse().find((d) => hitTestDrawing(d, point))
+        if (hit) {
+          event.stopPropagation()
+          if (event.shiftKey) {
+            const next = new Set(selectedDrawingIds)
+            if (next.has(hit.id)) next.delete(hit.id)
+            else next.add(hit.id)
+            applyDrawingSelection([...next], hit.id)
+          } else {
+            applyDrawingSelection([hit.id], hit.id)
+          }
+          setIsDrawing(false)
+          setDraftPoints([])
+          return
+        }
       }
 
       if (drawTool === 'text') {
@@ -793,9 +1203,9 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
       setIsDrawing(true)
       setDraftPoints([point])
-      setSelectedDrawingId(null)
+      applyDrawingSelection([])
     },
-    [beginRectangleEdit, commitDrawing, drawTool, drawings, flowPoint, saveDrawings, selectedDrawingId, viewport.zoom],
+    [applyDrawingSelection, beginRectangleEdit, commitDrawing, drawTool, drawings, flowPoint, saveDrawings, selectedDrawingId, selectedDrawingIds, viewport.zoom],
   )
 
   useEffect(() => {
@@ -808,30 +1218,31 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
       if (edit.kind === 'resize') {
         const nextRect = resizeRectFromHandle(edit.startRect, edit.handle, point)
-        setDrawingOverride({
-          ...current,
-          points: rectToCornerPoints(nextRect),
-        })
+        setDrawingOverrides(new Map([[current.id, { ...current, points: rectToCornerPoints(nextRect) }]]))
         return
       }
 
       const dx = point.x - edit.startPoint.x
       const dy = point.y - edit.startPoint.y
-      setDrawingOverride({
-        ...current,
-        points: edit.startPoints.map((p) => ({ x: p.x + dx, y: p.y + dy })),
-      })
+      const next = new Map<string, DrawingElement>()
+      for (const drawing of edit.originals) {
+        next.set(drawing.id, {
+          ...drawing,
+          points: drawing.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+        })
+      }
+      setDrawingOverrides(next)
     }
 
     const onUp = () => {
       const edit = drawingEditRef.current
       if (!edit) return
       drawingEditRef.current = null
-      setDrawingOverride((override) => {
-        if (override) {
-          saveDrawings(drawings.map((d) => (d.id === override.id ? override : d)))
+      setDrawingOverrides((overrides) => {
+        if (overrides.size > 0) {
+          saveDrawings(drawings.map((drawing) => overrides.get(drawing.id) ?? drawing))
         }
-        return null
+        return new Map()
       })
     }
 
@@ -861,10 +1272,9 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   const handleOverlayMouseUp = useCallback(() => {
     if (!isDrawing) return
 
-    if (isShapeDrawingTool(drawTool) && draftPoints.length >= 1) {
-      const a = draftPoints[0]
-      const b = draftPoints[draftPoints.length - 1] ?? a
-      commitShapeNode(shapeKindFromTool(drawTool), a, b)
+    if (isShapeDrawingTool(drawTool)) {
+      setIsDrawing(false)
+      setDraftPoints([])
       return
     }
 
@@ -884,11 +1294,15 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const selectedDrawingIdRef = useRef(selectedDrawingId)
   selectedDrawingIdRef.current = selectedDrawingId
+  const selectedDrawingIdsRef = useRef(selectedDrawingIds)
+  selectedDrawingIdsRef.current = selectedDrawingIds
+  const drawingOverridesRef = useRef(drawingOverrides)
+  drawingOverridesRef.current = drawingOverrides
 
   const copySelection = useCallback(async () => {
     const selectedNodeIds = nodesRef.current.filter((node) => node.selected).map((node) => node.id)
     const selectedEdgeIds = edgesRef.current.filter((edge) => edge.selected).map((edge) => edge.id)
-    const drawingIds = selectedDrawingIdRef.current ? [selectedDrawingIdRef.current] : []
+    const drawingIds = [...selectedDrawingIdsRef.current]
     const payload = collectClipboardPayload(
       document,
       diagramPath,
@@ -912,23 +1326,26 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     const cloned = cloneClipboard(payload, nextPasteGeneration())
     pendingSelectRef.current = new Set(cloned.systems.map((system) => system.id))
     patchDocument((prev) => applyClipboardToView(prev, diagramPath, cloned))
-    setSelectedDrawingId(cloned.drawings[0]?.id ?? null)
+    applyDrawingSelection(
+      cloned.drawings.map((drawing) => drawing.id),
+      cloned.drawings[0]?.id ?? null,
+    )
     return true
-  }, [diagramPath, patchDocument])
+  }, [applyDrawingSelection, diagramPath, patchDocument])
 
   const cutSelection = useCallback(async () => {
     const selectedNodeIds = nodesRef.current.filter((node) => node.selected).map((node) => node.id)
     const selectedEdgeIds = edgesRef.current.filter((edge) => edge.selected).map((edge) => edge.id)
-    const drawingIds = selectedDrawingIdRef.current ? [selectedDrawingIdRef.current] : []
+    const drawingIds = [...selectedDrawingIdsRef.current]
     const copied = await copySelection()
     if (!copied) return false
     patchDocument((prev) =>
       removeSelectionFromView(prev, diagramPath, selectedNodeIds, drawingIds, selectedEdgeIds),
     )
-    setSelectedDrawingId(null)
+    applyDrawingSelection([])
     onSelectionChange(null, null)
     return true
-  }, [copySelection, diagramPath, onSelectionChange, patchDocument])
+  }, [applyDrawingSelection, copySelection, diagramPath, onSelectionChange, patchDocument])
 
   const duplicateSelection = useCallback(async () => {
     const copied = await copySelection()
@@ -936,11 +1353,32 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     return pasteClipboard()
   }, [copySelection, pasteClipboard])
 
+  const selectAllComponents = useCallback(() => {
+    if (isDrawing) return
+    const currentDrawings = drawingsRef.current
+    const drawingIds = currentDrawings.map((drawing) => drawing.id)
+    ignoreDrawingClearRef.current = true
+    setDrawTool('select')
+    setNodes((current) => current.map((node) => ({ ...node, selected: true })))
+    setEdges((current) => current.map((edge) => ({ ...edge, selected: false })))
+    applyDrawingSelection(
+      drawingIds,
+      currentDrawings.find((drawing) => drawing.type === 'rectangle')?.id ?? drawingIds[0] ?? null,
+    )
+    applyFlowFocus(null)
+    const first = nodesRef.current[0] as Node<IntegrationNodeData> | undefined
+    onSelectionChange(first ?? null, null)
+    window.setTimeout(() => {
+      ignoreDrawingClearRef.current = false
+    }, 400)
+  }, [applyDrawingSelection, applyFlowFocus, isDrawing, onSelectionChange, setEdges, setNodes])
+
   clipboardApiRef.current = {
     copySelection,
     cutSelection,
     pasteClipboard,
     duplicateSelection,
+    selectAll: selectAllComponents,
   }
 
   useEffect(() => {
@@ -952,7 +1390,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       const hasSelection =
         nodesRef.current.some((node) => node.selected) ||
         edgesRef.current.some((edge) => edge.selected) ||
-        Boolean(selectedDrawingIdRef.current)
+        selectedDrawingIdsRef.current.size > 0
 
       if (command && key === 'c') {
         if (!hasSelection) return
@@ -977,11 +1415,17 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         void duplicateSelection()
         return
       }
-
-      if (selectedDrawingId && (event.key === 'Delete' || event.key === 'Backspace')) {
+      if (command && key === 'a') {
         event.preventDefault()
-        saveDrawings(drawings.filter((d) => d.id !== selectedDrawingId))
-        setSelectedDrawingId(null)
+        selectAllComponents()
+        return
+      }
+
+      if (selectedDrawingIdsRef.current.size > 0 && (event.key === 'Delete' || event.key === 'Backspace')) {
+        event.preventDefault()
+        const remove = selectedDrawingIdsRef.current
+        saveDrawings(drawings.filter((d) => !remove.has(d.id)))
+        applyDrawingSelection([])
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -992,8 +1436,9 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     drawings,
     duplicateSelection,
     pasteClipboard,
+    applyDrawingSelection,
     saveDrawings,
-    selectedDrawingId,
+    selectAllComponents,
   ])
 
   const handleNodesChange = useCallback(
@@ -1002,15 +1447,18 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         ? changes.filter((change) => change.type !== 'position' && change.type !== 'dimensions')
         : changes
       onNodesChange(permittedChanges)
-      const hasDimensionChange = permittedChanges.some((c) => c.type === 'dimensions')
-      if (hasDimensionChange) {
+      const shouldSync = permittedChanges.some(
+        (change) =>
+          change.type === 'dimensions' || (change.type === 'position' && change.dragging === false),
+      )
+      if (shouldSync) {
         setNodes((current) => {
-          syncDocument(current, edges)
+          syncDocument(current, edgesRef.current)
           return current
         })
       }
     },
-    [layoutLocked, onNodesChange, setNodes, syncDocument, edges],
+    [layoutLocked, onNodesChange, setNodes, syncDocument],
   )
 
   const updateEdgeGeometry = useCallback(
@@ -1119,9 +1567,51 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     [edges, isDrawMode, layoutLocked, screenToFlowPosition, setNodes, syncDocument],
   )
 
-  const onNodeDragStop = useCallback(() => {
-    syncDocument(nodes, edges)
-  }, [nodes, edges, syncDocument])
+  const persistNodePositions = useCallback(() => {
+    syncDocument(nodesRef.current, edgesRef.current)
+  }, [syncDocument])
+
+  const persistMovedDrawings = useCallback(() => {
+    const overrides = drawingOverridesRef.current
+    if (overrides.size === 0) return
+    saveDrawings(drawings.map((drawing) => overrides.get(drawing.id) ?? drawing))
+    setDrawingOverrides(new Map())
+    drawingMoveWithNodesRef.current = null
+  }, [drawings, saveDrawings])
+
+  const onNodeDragStart = useCallback(
+    (_event: unknown, node: Node) => {
+      if (selectedDrawingIdsRef.current.size === 0) {
+        drawingMoveWithNodesRef.current = null
+        return
+      }
+      drawingMoveWithNodesRef.current = {
+        start: { x: node.position.x, y: node.position.y },
+        originals: drawings
+          .filter((drawing) => selectedDrawingIdsRef.current.has(drawing.id))
+          .map((drawing) => ({
+            ...drawing,
+            points: drawing.points.map((point) => ({ ...point })),
+          })),
+      }
+    },
+    [drawings],
+  )
+
+  const onNodeDrag = useCallback((_event: unknown, node: Node) => {
+    const move = drawingMoveWithNodesRef.current
+    if (!move) return
+    const dx = node.position.x - move.start.x
+    const dy = node.position.y - move.start.y
+    const next = new Map<string, DrawingElement>()
+    for (const drawing of move.originals) {
+      next.set(drawing.id, {
+        ...drawing,
+        points: drawing.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+      })
+    }
+    setDrawingOverrides(next)
+  }, [])
 
   const finishNodeTitleEdit = useCallback((nodeId: string, label: string) => {
     setNodes((current) => {
@@ -1178,6 +1668,10 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const onNodeDoubleClick = useCallback(
     (_event: React.MouseEvent, node: Node<IntegrationNodeData>) => {
+      if (node.type === 'shape' || node.data.systemType === 'shape') {
+        setEditingNodeId(node.id)
+        return
+      }
       if (isDrawMode) return
       const data = node.data
       if (!data.canDrillIn) return
@@ -1211,14 +1705,25 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const onSelectionChangeHandler = useCallback(
     ({ nodes: selNodes, edges: selEdges }: { nodes: Node[]; edges: Edge[] }) => {
-      if (isDrawMode) return
-      if (selNodes[0] || selEdges[0]) setSelectedDrawingId(null)
+      if (isDrawMode && !isShapeTool) return
+      if (
+        !ignoreDrawingClearRef.current &&
+        selNodes.length === 1 &&
+        !selEdges[0] &&
+        selectedDrawingIdsRef.current.size <= 1
+      ) {
+        applyDrawingSelection([])
+      }
 
       const node = (selNodes[0] as Node<IntegrationNodeData>) ?? null
       const edge = (selEdges[0] as Edge<IntegrationEdgeData>) ?? null
+      const endNode = selNodes.length === 2 ? (selNodes[1] as Node<IntegrationNodeData>) : null
 
-      // Node selection drives flow direction highlight on connectors
-      if (node) {
+      if (selNodes.length > 2) {
+        applyFlowFocus(null)
+      } else if (node && endNode && endNode.id !== node.id) {
+        applyFlowFocus(node.id, null, false, endNode.id)
+      } else if (node) {
         applyFlowFocus(node.id)
       } else if (edge) {
         applyFlowFocus(null, edge.id)
@@ -1228,7 +1733,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
       onSelectionChange(node, edge)
     },
-    [applyFlowFocus, isDrawMode, onSelectionChange, setEdges],
+    [applyDrawingSelection, applyFlowFocus, isDrawMode, isShapeTool, onSelectionChange],
   )
 
   const onPaneClick = useCallback(
@@ -1236,18 +1741,36 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       if (drawTool !== 'select') return
       const point = flowPoint(event)
       const hit = [...drawings].reverse().find((d) => hitTestDrawing(d, point))
-      setSelectedDrawingId(hit?.id ?? null)
       if (hit) {
+        if (event.shiftKey) {
+          const next = new Set(selectedDrawingIdsRef.current)
+          if (next.has(hit.id)) next.delete(hit.id)
+          else next.add(hit.id)
+          applyDrawingSelection([...next], hit.id)
+        } else {
+          applyDrawingSelection([hit.id], hit.id)
+        }
         applyFlowFocus(null)
         onSelectionChange(null, null)
+      } else if (!event.shiftKey) {
+        applyDrawingSelection([])
       }
     },
-    [applyFlowFocus, drawTool, drawings, flowPoint, onSelectionChange],
+    [applyDrawingSelection, applyFlowFocus, drawTool, drawings, flowPoint, onSelectionChange],
   )
 
   const selectedDrawing = selectedDrawingId
     ? drawings.find((drawing) => drawing.id === selectedDrawingId) ?? null
     : null
+  const editingDrawing = editingDrawingId
+    ? drawingOverrides.get(editingDrawingId) ??
+      drawings.find((drawing) => drawing.id === editingDrawingId) ??
+      null
+    : null
+  const editingDrawingRect =
+    editingDrawing?.type === 'rectangle' && editingDrawing.points.length >= 2
+      ? rectFromPoints(editingDrawing.points[0], editingDrawing.points[1])
+      : null
 
   const updateSelectedDrawing = (patch: Partial<DrawingElement>) => {
     if (!selectedDrawing) return
@@ -1286,7 +1809,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   return (
     <div className="canvas-shell">
-    <div className="canvas-wrapper" ref={reactFlowWrapper}>
+    <div className="canvas-wrapper" ref={reactFlowWrapper} onMouseDown={handleShapePaneMouseDown}>
       <EdgeEditContext.Provider value={{ updateEdgeGeometry }}>
       <DrillInContext.Provider value={onDrillInto}>
       <DiagramLockContext.Provider value={layoutLocked}>
@@ -1309,19 +1832,33 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         onReconnect={onReconnect}
         onDrop={onDrop}
         onDragOver={onDragOver}
-        onNodeDragStop={onNodeDragStop}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={() => {
+          persistNodePositions()
+          persistMovedDrawings()
+        }}
+        onSelectionDragStop={() => {
+          persistNodePositions()
+          persistMovedDrawings()
+        }}
         onNodeDoubleClick={onNodeDoubleClick}
         onPaneClick={onPaneClick}
         onSelectionChange={onSelectionChangeHandler}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        nodesDraggable={!isDrawMode && !layoutLocked}
+        nodesDraggable={shapeSelectEnabled && !layoutLocked}
         nodesConnectable={!isDrawMode && !layoutLocked}
-        elementsSelectable={!isDrawMode}
+        elementsSelectable={shapeSelectEnabled}
         edgesReconnectable={!isDrawMode && !layoutLocked}
         reconnectRadius={18}
         connectionMode={ConnectionMode.Loose}
-        panOnDrag={!isDrawMode}
+        panOnDrag={isDrawMode ? false : [1, 2]}
+        panActivationKeyCode="Space"
+        selectionOnDrag={!isDrawMode}
+        selectionMode={SelectionMode.Partial}
+        selectNodesOnDrag={false}
+        nodeDragThreshold={4}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.15}
@@ -1332,14 +1869,17 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         snapToGrid={!isDrawMode}
         snapGrid={[16, 16]}
         multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
-        selectionKeyCode="Shift"
+        selectionKeyCode={null}
         defaultEdgeOptions={{ type: 'integration', reconnectable: true }}
         connectionLineComponent={IntegrationConnectionLine}
         deleteKeyCode={isDrawMode ? null : ['Backspace', 'Delete']}
         elevateNodesOnSelect={false}
-        className={
-          flowStyle.scope === 'touches' && (flowFocusId || flowEdgeId) ? 'flow-show-touches' : undefined
-        }
+        className={[
+          flowStyle.scope === 'touches' && (flowFocusId || flowEdgeId) ? 'flow-show-touches' : '',
+          isPlayingFlow ? 'flow-playing' : '',
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined}
       >
         <Background gap={16} size={1} color="#e2e8f0" />
         <Controls position="bottom-left" />
@@ -1360,7 +1900,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       </EdgeEditContext.Provider>
 
       <div
-        className={`drawing-overlay ${isDrawMode ? 'drawing-active' : ''}`}
+        className={`drawing-overlay ${isDrawMode && !isShapeTool ? 'drawing-active' : ''}`}
         onMouseDown={handleOverlayMouseDown}
         onMouseMove={handleOverlayMouseMove}
         onMouseUp={handleOverlayMouseUp}
@@ -1369,8 +1909,9 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         <svg className="drawing-svg">
           <g transform={`translate(${viewport.x}, ${viewport.y}) scale(${viewport.zoom})`}>
             {drawings.map((el) => {
-              const current = drawingOverride?.id === el.id ? drawingOverride : el
-              const selected = el.id === selectedDrawingId
+              const current = drawingOverrides.get(el.id) ?? el
+              const selected = selectedDrawingIds.has(el.id)
+              const primary = el.id === selectedDrawingId
               const handleSize = 8 / Math.max(viewport.zoom, 0.2)
               const rect =
                 current.type === 'rectangle' && current.points.length >= 2
@@ -1378,8 +1919,67 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
                   : null
               return (
                 <g key={el.id}>
-                  {renderDrawingElement(current, selected)}
+                  {renderDrawingElement(current, selected, { hideText: el.id === editingDrawingId })}
                   {selected && rect && (
+                    <rect
+                      className="drawing-selection-ring"
+                      x={rect.x - 3}
+                      y={rect.y - 3}
+                      width={rect.width + 6}
+                      height={rect.height + 6}
+                      fill="none"
+                      stroke="#6366f1"
+                      strokeWidth={2 / Math.max(viewport.zoom, 0.2)}
+                      strokeDasharray={`${7 / Math.max(viewport.zoom, 0.2)} ${4 / Math.max(viewport.zoom, 0.2)}`}
+                      rx={8}
+                      pointerEvents="none"
+                    />
+                  )}
+                  {rect && (
+                    <rect
+                      className="drawing-hit"
+                      x={rect.x}
+                      y={rect.y}
+                      width={Math.max(rect.width, 1)}
+                      height={Math.max(rect.height, 1)}
+                      fill="transparent"
+                      onMouseDown={(event) => {
+                        if (event.button !== 0 || drawTool === 'eraser') return
+                        event.stopPropagation()
+                        if (event.shiftKey) {
+                          const next = new Set(selectedDrawingIds)
+                          if (next.has(el.id)) next.delete(el.id)
+                          else next.add(el.id)
+                          applyDrawingSelection([...next], el.id)
+                        } else if (!selectedDrawingIds.has(el.id)) {
+                          applyDrawingSelection([el.id], el.id)
+                        }
+                        if (event.detail === 2) return
+                        if (!selectedDrawingIds.has(el.id) && !event.shiftKey && drawTool !== 'select') return
+                        const point = flowPoint(event)
+                        const group = drawings.filter((drawing) =>
+                          (event.shiftKey ? new Set([...selectedDrawingIds, el.id]) : selectedDrawingIds).has(drawing.id),
+                        )
+                        const originals = (group.length > 0 ? group : [current]).map((drawing) => ({
+                          ...drawing,
+                          points: drawing.points.map((p) => ({ ...p })),
+                        }))
+                        beginRectangleEdit({
+                          kind: 'move',
+                          id: el.id,
+                          startPoint: point,
+                          originals,
+                        })
+                      }}
+                      onDoubleClick={(event) => {
+                        event.stopPropagation()
+                        event.preventDefault()
+                        applyDrawingSelection([el.id], el.id)
+                        setEditingDrawingId(el.id)
+                      }}
+                    />
+                  )}
+                  {primary && rect && (
                     <>
                       <rect
                         className="drawing-rect-mover"
@@ -1390,14 +1990,24 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
                         fill="transparent"
                         onMouseDown={(event) => {
                           if (event.button !== 0) return
+                          if (event.detail === 2) return
                           event.stopPropagation()
                           const point = flowPoint(event)
+                          const group = drawings.filter((drawing) => selectedDrawingIds.has(drawing.id))
                           beginRectangleEdit({
                             kind: 'move',
                             id: el.id,
                             startPoint: point,
-                            startPoints: current.points.map((p) => ({ ...p })),
+                            originals: (group.length > 0 ? group : [current]).map((drawing) => ({
+                              ...drawing,
+                              points: drawing.points.map((p) => ({ ...p })),
+                            })),
                           })
+                        }}
+                        onDoubleClick={(event) => {
+                          event.stopPropagation()
+                          event.preventDefault()
+                          setEditingDrawingId(el.id)
                         }}
                       />
                       {RECT_HANDLES.map(({ id, cursor }) => {
@@ -1447,6 +2057,27 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
             )}
           </g>
         </svg>
+        {editingDrawing && editingDrawingRect && (
+          <DrawingRectTextEditor
+            key={editingDrawing.id}
+            rect={editingDrawingRect}
+            viewport={viewport}
+            color={editingDrawing.color}
+            fontSize={editingDrawing.fontSize ?? 14}
+            initialValue={editingDrawing.text ?? ''}
+            onCommit={(text) => {
+              saveDrawings(
+                drawings.map((drawing) =>
+                  drawing.id === editingDrawing.id
+                    ? { ...drawing, text: text.trim() || undefined }
+                    : drawing,
+                ),
+              )
+              setEditingDrawingId(null)
+            }}
+            onCancel={() => setEditingDrawingId(null)}
+          />
+        )}
       </div>
 
       <DrawingToolbar
@@ -1461,6 +2092,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         onToggleLayoutLock={toggleLayoutLock}
         selectedNodeCount={nodes.filter((node) => node.selected && node.type !== 'group').length}
         onGroupSelection={groupSelectedNodes}
+        onSelectAll={selectAllComponents}
       />
 
       {onOpenAi && (
@@ -1478,23 +2110,86 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       <div className="canvas-hint">
         {isDrawMode
           ? isShapeTool
-            ? `Shape: ${SHAPE_TOOLS.find((t) => t.id === drawTool)?.label ?? 'Shape'} · Drag to size · Select mode to resize/connect`
+            ? `Shape: ${SHAPE_TOOLS.find((t) => t.id === drawTool)?.label ?? 'Shape'} · Drag empty canvas to draw · Click a shape to select it · Use Add text`
             : drawTool === 'rectangle'
-              ? 'Freehand rectangle · Drag to size · After placing, drag corners or edges to increase or decrease'
+              ? 'Freehand rectangle · Drag to size · Type in the box to add text · Double-click later to edit'
               : `Drawing mode: ${drawTool} · Click and drag · Select to edit components`
-          : flowFocusId || flowEdgeId
-            ? flowStyle.scope === 'chain'
-              ? 'Showing the connected chain from this component · Unconnected boxes stay dim · Click empty canvas to clear'
-              : flowStyle.scope === 'touches'
-                ? 'All touches: every system this component connects to, with flow · Click empty canvas to clear'
-                : 'Showing only boxes linked by an integration line · Click empty canvas to clear'
-            : diagramPath.length === 0
-              ? 'Select a box to highlight flow · Use All touches to see every connection'
-              : 'Select a box to highlight connected integrations · Double-click to drill in'}
-        {!isDrawMode && !flowFocusId && ' · Drag corners to resize · Drag ports to link · Shift-click to multi-select · Ctrl+C / Ctrl+V to copy paste'}
+          : flowEndId
+            ? 'End-to-end path between the two selected components · Shift-click another box to change the end'
+            : isPlayingFlow
+              ? 'Playing the end-to-end flow · Click Stop flow or the empty canvas to clear'
+              : flowFocusId || flowEdgeId
+                ? flowStyle.scope === 'chain'
+                  ? 'End-to-end chain from this component · Pick a path in Tools, then Play flow'
+                  : flowStyle.scope === 'touches'
+                    ? 'All touches: every system this component connects to, with flow · Click empty canvas to clear'
+                    : 'Showing only boxes linked by an integration line · Click empty canvas to clear'
+                : diagramPath.length === 0
+                  ? 'Drag on empty canvas to select · Drag a selected box to move the group · Ctrl+A selects all'
+                  : 'Select a box to highlight connected integrations · Double-click to drill in'}
+        {!isDrawMode && !flowFocusId && ' · Drag on empty canvas to rubber-band select · Middle-drag or Space-drag to pan · Ctrl+A to select all'}
       </div>
 
-      {propertiesPlacement === 'flyout' && selectionKey && !isDrawMode && !flyoutDismissed && (
+      {!isDrawMode && (nodes.filter((node) => node.selected).length > 1 || selectedDrawingIds.size > 1) && (
+        <div className="selection-move-hint nodrag nopan">
+          {nodes.filter((node) => node.selected).length + selectedDrawingIds.size} selected
+          {layoutLocked ? ' · Unlock to move' : ' · Drag any selected item to move them together'}
+        </div>
+      )}
+
+      {activeFlowPath && (flowFocusId || flowEdgeId) && (
+        <div className="flow-trail-overlay nodrag nopan">
+          <div className="flow-trail-header">
+            <strong>
+              {isPlayingFlow
+                ? 'Playing flow'
+                : flowEndId
+                  ? 'End-to-end path'
+                  : highlightedPathId
+                    ? 'Selected flow'
+                    : 'End-to-end flow'}
+            </strong>
+            <span>
+              {activeFlowPath.edgeIds.length} hop{activeFlowPath.edgeIds.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="flow-trail">
+            {activeFlowPath.labels.map((label, index) => (
+              <span key={`${activeFlowPath.id}-${index}`}>
+                {index > 0 && <span className="flow-trail-arrow">→</span>}
+                <span
+                  className={`flow-trail-node ${
+                    isPlayingFlow && index === Math.min(playHopIndex + 1, activeFlowPath.labels.length - 1)
+                      ? 'current'
+                      : isPlayingFlow && index <= playHopIndex
+                        ? 'visited'
+                        : ''
+                  }`}
+                >
+                  {label}
+                </span>
+              </span>
+            ))}
+          </div>
+          <div className="flow-trail-actions">
+            <button
+              type="button"
+              className={`flow-color-btn ${isPlayingFlow ? 'active' : ''}`}
+              onClick={() => (isPlayingFlow ? stopFlowPlay() : playFlow(activeFlowPath.id))}
+            >
+              {isPlayingFlow ? <Pause size={12} /> : <Play size={12} />}
+              {isPlayingFlow ? 'Stop' : 'Play'}
+            </button>
+            {highlightedPathId && (
+              <button type="button" className="flow-color-btn" onClick={() => highlightFlowPath(null)}>
+                Show all paths
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {propertiesPlacement === 'flyout' && selectionKey && (!isDrawMode || isShapeTool) && !flyoutDismissed && (
         <PropertiesFlyout nodeId={flowFocusId} edgeId={flowEdgeId}>
           {isValidElement(properties)
             ? cloneElement(properties as ReactElement<Record<string, unknown>>, {
@@ -1505,7 +2200,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
             : properties}
         </PropertiesFlyout>
       )}
-      {propertiesPlacement === 'flyout' && selectionKey && !isDrawMode && flyoutDismissed && (
+      {propertiesPlacement === 'flyout' && selectionKey && (!isDrawMode || isShapeTool) && flyoutDismissed && (
         <PropertiesFlyout nodeId={flowFocusId} edgeId={flowEdgeId} compact>
           <button
             type="button"
@@ -1517,21 +2212,43 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           </button>
         </PropertiesFlyout>
       )}
-      {selectedDrawing && drawTool === 'select' && (
+      {selectedDrawing && (
         <aside className="drawing-properties-flyout nodrag nopan">
           <div className="drawing-properties-header">
-            <strong>{selectedDrawing.type === 'text' ? 'Text properties' : `${selectedDrawing.type} properties`}</strong>
-            <button type="button" className="icon-btn" onClick={() => setSelectedDrawingId(null)} aria-label="Close drawing properties">×</button>
+            <strong>
+              {selectedDrawingIds.size > 1
+                ? `${selectedDrawingIds.size} drawings selected`
+                : selectedDrawing.type === 'text'
+                  ? 'Text properties'
+                  : `${selectedDrawing.type} properties`}
+            </strong>
+            <button type="button" className="icon-btn" onClick={() => applyDrawingSelection([])} aria-label="Close drawing properties">×</button>
           </div>
-          {selectedDrawing.type === 'text' && (
-            <label>
-              Text
-              <input
-                autoFocus
-                value={selectedDrawing.text ?? ''}
-                onChange={(event) => updateSelectedDrawing({ text: event.target.value })}
-              />
-            </label>
+          {(selectedDrawing.type === 'rectangle' || selectedDrawing.type === 'text') && (
+            <>
+              <label className="shape-text-property">
+                Text
+                <textarea
+                  rows={3}
+                  value={selectedDrawing.text ?? ''}
+                  placeholder="Type the text shown on this rectangle"
+                  onChange={(event) => updateSelectedDrawing({ text: event.target.value })}
+                  onFocus={() => {
+                    if (selectedDrawing.type === 'rectangle') setEditingDrawingId(null)
+                  }}
+                />
+              </label>
+              <label>
+                Text size
+                <input
+                  type="number"
+                  min={8}
+                  max={72}
+                  value={selectedDrawing.fontSize ?? 14}
+                  onChange={(event) => updateSelectedDrawing({ fontSize: Number(event.target.value) || 14 })}
+                />
+              </label>
+            </>
           )}
           <label>
             Stroke colour
@@ -1551,18 +2268,6 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
               />
             </label>
           )}
-          {selectedDrawing.type === 'text' && (
-            <label>
-              Text size
-              <input
-                type="number"
-                min={8}
-                max={72}
-                value={selectedDrawing.fontSize ?? 14}
-                onChange={(event) => updateSelectedDrawing({ fontSize: Number(event.target.value) || 14 })}
-              />
-            </label>
-          )}
           <label>
             Stroke width
             <input
@@ -1578,8 +2283,9 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
             type="button"
             className="btn-danger"
             onClick={() => {
-              saveDrawings(drawings.filter((drawing) => drawing.id !== selectedDrawing.id))
-              setSelectedDrawingId(null)
+              const remove = selectedDrawingIds.size > 0 ? selectedDrawingIds : new Set([selectedDrawing.id])
+              saveDrawings(drawings.filter((drawing) => !remove.has(drawing.id)))
+              applyDrawingSelection([])
             }}
           >
             Delete
@@ -1600,6 +2306,12 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         flowFocusId={flowFocusId}
         flowEdgeId={flowEdgeId}
         flowTrace={flowTrace}
+        highlightedPathId={highlightedPathId}
+        onHighlightPath={highlightFlowPath}
+        isPlayingFlow={isPlayingFlow}
+        playHopIndex={playHopIndex}
+        onPlayFlow={() => playFlow()}
+        onStopFlow={stopFlowPlay}
         stateView={stateView}
         onStateView={updateStateView}
         properties={

@@ -1,11 +1,11 @@
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { NodeResizer, NodeToolbar, Position, type NodeProps } from '@xyflow/react'
+import { useEffect, useRef, useState } from 'react'
 import type { DrawingShapeKind } from '../../types'
 import { DRAWING_SHAPE_LABELS } from '../../types'
 import type { IntegrationNodeData } from '../../utils/jsonIO'
 import { NodeConnectors } from './NodeConnectors'
 import { withNodeFontSize } from '../../utils/nodeFontSize'
 import { useDiagramLock } from './diagramLockContext'
-import { InlineNodeTitleEditor } from './InlineNodeTitleEditor'
 import { useNodeTitleEdit } from './nodeTitleEditContext'
 
 function shapeKind(data: IntegrationNodeData): DrawingShapeKind {
@@ -139,16 +139,37 @@ function ShapeGeometry({
 
 export function ShapeNode({ id, data, selected }: NodeProps) {
   const layoutLocked = useDiagramLock()
-  const { startEditing } = useNodeTitleEdit()
+  const { editingNodeId, startEditing, finishEditing, cancelEditing } = useNodeTitleEdit()
   const nodeData = data as IntegrationNodeData
   const kind = shapeKind(nodeData)
   const color = nodeData.properties.color ?? '#64748b'
   const fill = nodeData.properties.fill ?? `${color}22`
-  const label = nodeData.label || DRAWING_SHAPE_LABELS[kind]
+  const label = nodeData.label ?? ''
+  const editing = editingNodeId === id
+  const [draft, setDraft] = useState(label)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+  const openedAtRef = useRef(0)
+
+  useEffect(() => {
+    if (!editing) return
+    setDraft(label)
+    openedAtRef.current = Date.now()
+    window.requestAnimationFrame(() => {
+      textRef.current?.focus()
+      textRef.current?.select()
+    })
+  }, [editing, label])
+
+  const commit = () => {
+    if (Date.now() - openedAtRef.current < 250) {
+      textRef.current?.focus()
+      return
+    }
+    finishEditing(id, draft.trim())
+  }
 
   return (
     <>
-      <InlineNodeTitleEditor nodeId={id} label={label} />
       <NodeResizer
         minWidth={48}
         minHeight={36}
@@ -157,21 +178,63 @@ export function ShapeNode({ id, data, selected }: NodeProps) {
         handleClassName="resize-handle"
       />
 
+      {selected && !editing && !layoutLocked && (
+        <NodeToolbar isVisible position={Position.Bottom} offset={10} className="shape-text-toolbar nodrag nopan">
+          <button
+            type="button"
+            className="shape-text-btn"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation()
+              startEditing(id)
+            }}
+          >
+            {label ? 'Edit text' : 'Add text'}
+          </button>
+        </NodeToolbar>
+      )}
+
       <NodeConnectors variant="shape" />
 
       <div
-        className={`shape-node resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''}`}
+        className={`shape-node resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.isFlowPlayCurrent ? 'flow-play-current' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''}`}
         style={withNodeFontSize(nodeData.properties)}
-        title="Double-click to rename"
+        title={label ? 'Double-click to edit text' : 'Double-click to add text'}
         onDoubleClick={(event) => {
           event.stopPropagation()
-          startEditing(id)
+          if (!layoutLocked) startEditing(id)
         }}
       >
         <svg className="shape-node-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
           <ShapeGeometry kind={kind} color={color} fill={fill} selected={!!selected} />
         </svg>
-        <div className="shape-node-label">{label}</div>
+        {editing ? (
+          <textarea
+            ref={textRef}
+            className="shape-node-text-editor nodrag nopan nowheel"
+            value={draft}
+            placeholder={`Add text (${DRAWING_SHAPE_LABELS[kind]})`}
+            aria-label="Shape text"
+            onChange={(event) => setDraft(event.target.value)}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                cancelEditing()
+              }
+              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault()
+                commit()
+              }
+            }}
+          />
+        ) : (
+          <div className={`shape-node-label ${label ? '' : 'is-placeholder'}`}>
+            {label || (selected ? 'Add text' : '')}
+          </div>
+        )}
       </div>
     </>
   )

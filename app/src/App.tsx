@@ -26,6 +26,7 @@ import {
   Upload,
   UploadCloud,
   Bot,
+  BoxSelect,
   Save,
 } from 'lucide-react'
 import { CodeLinksPanel } from './components/CodeLinksPanel'
@@ -137,6 +138,7 @@ import {
 import {
   isVsCodeHost,
   notifyHostReady,
+  pickJsonFileFromHost,
   saveDocumentToHost,
   subscribeToHost,
 } from './utils/vscodeHost'
@@ -556,6 +558,20 @@ function App() {
     event.target.value = ''
   }
 
+  const handleImportFromDevice = useCallback(async () => {
+    if (isVsCodeHost()) {
+      try {
+        const json = await pickJsonFileFromHost()
+        if (!json) return
+        handleImport(json, false)
+      } catch (err) {
+        setJsonError(err instanceof Error ? err.message : 'Could not open that file')
+      }
+      return
+    }
+    fileInputRef.current?.click()
+  }, [handleImport])
+
   const handleExport = () => {
     downloadJson(document)
   }
@@ -676,11 +692,16 @@ function App() {
 
   const runOfficeExport = async (kind: 'pptx' | 'docx') => {
     setExporting(true)
-    setGitMessage(null)
+    setGitMessage(kind === 'pptx' ? 'Building PowerPoint briefing…' : 'Building Word SAD…')
     try {
       const { buildArchitectureBrief } = await import('./utils/architectureNarrative')
       const brief = buildArchitectureBrief(document)
-      const image = await canvasRef.current?.capturePng()
+      let image = null
+      try {
+        image = (await canvasRef.current?.capturePng()) ?? null
+      } catch {
+        image = null
+      }
       if (kind === 'pptx') {
         const { exportArchitecturePptx } = await import('./utils/exportPptx')
         await exportArchitecturePptx(brief, image)
@@ -691,7 +712,11 @@ function App() {
         setGitMessage('Downloaded Word Solution Architecture Document')
       }
     } catch (err) {
-      setGitMessage(err instanceof Error ? err.message : 'Export failed')
+      const message = err instanceof Error ? err.message : 'Export failed'
+      const hint = /failed to fetch|cannot find module|is not a constructor|node:fs/i.test(message)
+        ? ' The document library could not run in this browser session. Reload the page and try Export again.'
+        : ''
+      setGitMessage(`${kind === 'pptx' ? 'PowerPoint' : 'Word SAD'} export failed: ${message}${hint}`)
     } finally {
       setExporting(false)
     }
@@ -773,6 +798,8 @@ function App() {
         description: data.description ?? i.description,
         interfaceSpec: data.interfaceSpec !== undefined ? data.interfaceSpec : i.interfaceSpec,
         color: 'color' in data ? data.color : i.color,
+        lineStyle: 'lineStyle' in data ? data.lineStyle : i.lineStyle,
+        lineWeight: 'lineWeight' in data ? data.lineWeight : i.lineWeight,
         changeStatus: 'changeStatus' in data ? data.changeStatus : i.changeStatus,
         routing: data.routing ?? i.routing,
         waypoints: 'waypoints' in data ? data.waypoints : i.waypoints,
@@ -1035,7 +1062,7 @@ function App() {
             label: 'Import JSON…',
             hint: 'Open a project file',
             icon: Upload,
-            onSelect: () => fileInputRef.current?.click(),
+            onSelect: () => void handleImportFromDevice(),
           },
           { id: 'edit-json', label: 'Edit JSON', hint: 'Raw architecture document', icon: FileJson, onSelect: handleOpenJsonEditor },
           {
@@ -1152,6 +1179,14 @@ function App() {
             hint: 'Copy and paste in place',
             icon: CopyPlus,
             onSelect: () => void canvasRef.current?.duplicateSelection(),
+          },
+          {
+            id: 'select-all',
+            label: 'Select all',
+            shortcut: 'Ctrl+A',
+            hint: 'Select every component, then drag to move',
+            icon: BoxSelect,
+            onSelect: () => canvasRef.current?.selectAll(),
           },
         ],
       },
@@ -1318,6 +1353,7 @@ function App() {
       gitConnected,
       handleExport,
       handleExportImage,
+      handleImportFromDevice,
       handleNewTab,
       handleOpenJsonEditor,
       isFullscreen,
@@ -1343,7 +1379,7 @@ function App() {
   return (
     <div
       ref={appRef}
-      className={`app${menusHidden ? ' menus-hidden' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
+      className={`app app-shell${menusHidden ? ' menus-hidden' : ''}${isFullscreen ? ' is-fullscreen' : ''}`}
     >
       <header className="toolbar">
         <div className="toolbar-brand">

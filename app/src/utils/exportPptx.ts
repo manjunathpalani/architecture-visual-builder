@@ -1,5 +1,5 @@
 import PptxGenJS from 'pptxgenjs'
-import type { ArchitectureBrief, SystemBrief } from './architectureNarrative'
+import { downloadBlob, type ArchitectureBrief, type SystemBrief } from './architectureNarrative'
 import type { DiagramImage } from './captureDiagram'
 
 type Slide = ReturnType<PptxGenJS['addSlide']>
@@ -15,8 +15,22 @@ const WHITE = 'FFFFFF'
 const CARD = 'FFFFFF'
 const LINE = 'E2E8F0'
 
+function createPresentation(): PptxGenJS {
+  const imported = PptxGenJS as unknown
+  const Ctor =
+    typeof imported === 'function'
+      ? (imported as new () => PptxGenJS)
+      : typeof imported === 'object' && imported && 'default' in imported && typeof (imported as { default: unknown }).default === 'function'
+        ? ((imported as { default: new () => PptxGenJS }).default)
+        : null
+  if (!Ctor) {
+    throw new Error('PowerPoint library failed to load. Reload the page and try Export again.')
+  }
+  return new Ctor()
+}
+
 export async function exportArchitecturePptx(brief: ArchitectureBrief, diagram?: DiagramImage | null) {
-  const pres = new PptxGenJS()
+  const pres = createPresentation()
   pres.layout = 'LAYOUT_WIDE'
   pres.title = `${brief.title} — Architecture Briefing`
   pres.author = 'Architecture Visual Builder'
@@ -32,7 +46,15 @@ export async function exportArchitecturePptx(brief: ArchitectureBrief, diagram?:
   addApiSlides(pres, brief)
   addCloseSlide(pres, brief)
 
-  await pres.writeFile({ fileName: `${brief.fileBase}-architecture-briefing.pptx` })
+  const fileName = `${brief.fileBase || 'architecture'}-architecture-briefing.pptx`
+  const output = await pres.write({ outputType: 'blob' })
+  const blob =
+    output instanceof Blob
+      ? output
+      : new Blob([output as BlobPart], {
+          type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        })
+  downloadBlob(blob, fileName)
 }
 
 function addTitleSlide(pres: PptxGenJS, brief: ArchitectureBrief) {
@@ -134,14 +156,21 @@ function addDiagramSlide(pres: PptxGenJS, brief: ArchitectureBrief, diagram?: Di
     x: box.x, y: box.y, w: box.w, h: box.h,
     fill: { color: WHITE }, line: { color: LINE },
   })
-  slide.addImage({
-    data: diagram.dataUrl,
-    x: box.x + (box.w - fitted.w) / 2,
-    y: box.y + (box.h - fitted.h) / 2,
-    w: fitted.w,
-    h: fitted.h,
-    altText: `${brief.title} architecture diagram`,
-  })
+  try {
+    slide.addImage({
+      data: diagram.dataUrl,
+      x: box.x + (box.w - fitted.w) / 2,
+      y: box.y + (box.h - fitted.h) / 2,
+      w: fitted.w,
+      h: fitted.h,
+      altText: `${brief.title} architecture diagram`,
+    })
+  } catch {
+    slide.addText('The diagram snapshot could not be embedded by the PowerPoint library. The remaining slides still explain the architecture.', {
+      x: 1.2, y: 3.4, w: 10.8, h: 1.0,
+      fontFace: 'Calibri', fontSize: 16, color: MUTED, align: 'center',
+    })
+  }
 }
 
 function addNarrativeSlide(pres: PptxGenJS, brief: ArchitectureBrief) {

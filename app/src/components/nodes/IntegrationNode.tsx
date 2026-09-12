@@ -50,7 +50,7 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
         handleClassName="resize-handle"
       />
       <div
-        className={`integration-node resizable-node display-${display} ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
+        className={`integration-node resizable-node display-${display} ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.isFlowPlayCurrent ? 'flow-play-current' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
         style={withNodeFontSize(nodeData.properties, { '--node-color': color } as React.CSSProperties)}
         title={isIcon ? `${nodeData.label} · ${config.label}` : undefined}
       >

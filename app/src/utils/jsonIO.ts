@@ -2,10 +2,14 @@ import type { Edge, Node } from '@xyflow/react'
 import {
   getFlowNodeType,
   parseEdgeRouting,
+  parseLineStyle,
+  parseLineWeight,
   type ArchitectureDocument,
   type Integration,
   type IntegrationDirection,
   type IntegrationFrequency,
+  type IntegrationLineStyle,
+  type IntegrationLineWeight,
   type IntegrationProtocol,
   type Position,
   type SystemNode,
@@ -29,6 +33,8 @@ export interface IntegrationNodeData extends Record<string, unknown> {
   isFlowFocus?: boolean
   /** Runtime: node sits on an end-to-end path through the selection */
   isFlowPath?: boolean
+  /** Runtime: this node is the current hop while playing an end-to-end flow */
+  isFlowPlayCurrent?: boolean
   /** Runtime: show connection ports (touch points) on this node */
   showTouchPoints?: boolean
   isStateContext?: boolean
@@ -48,6 +54,8 @@ export interface IntegrationEdgeData extends Record<string, unknown> {
   description: string
   interfaceSpec?: string
   color?: string
+  lineStyle?: IntegrationLineStyle
+  lineWeight?: IntegrationLineWeight
   changeStatus?: 'unchanged' | 'new' | 'modified' | 'retired'
   routing?: EdgeRouting
   waypoints?: Position[]
@@ -59,6 +67,10 @@ export interface IntegrationEdgeData extends Record<string, unknown> {
   flowPathColor?: string
   /** Runtime: how edges are colored on the canvas */
   colorBy?: 'direction' | 'protocol' | 'custom' | 'path'
+  /** Runtime: 1-based hop number on an isolated/playing path */
+  flowHopIndex?: number
+  /** Runtime: this edge is the current hop while playing a flow */
+  flowPlayCurrent?: boolean
   jiraIssueKey?: string
   jiraIssueSummary?: string
   jiraIssueUrl?: string
@@ -139,6 +151,8 @@ export function documentToFlow(document: ArchitectureDocument): {
       description: integration.description ?? '',
       interfaceSpec: integration.interfaceSpec,
       color: integration.color,
+      lineStyle: integration.lineStyle ? parseLineStyle(integration.lineStyle) : undefined,
+      lineWeight: integration.lineWeight ? parseLineWeight(integration.lineWeight) : undefined,
       changeStatus: integration.changeStatus ?? 'unchanged',
       routing: parseEdgeRouting(integration.routing),
       waypoints: integration.waypoints ?? [],
@@ -192,6 +206,8 @@ export function flowToDocument(
     description: edge.data?.description ?? '',
     interfaceSpec: edge.data?.interfaceSpec,
     color: edge.data?.color,
+    lineStyle: edge.data?.lineStyle,
+    lineWeight: edge.data?.lineWeight,
     changeStatus: edge.data?.changeStatus,
     routing: parseEdgeRouting(edge.data?.routing),
     waypoints: edge.data?.waypoints,

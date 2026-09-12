@@ -5,8 +5,6 @@ import {
   Diamond,
   Eraser,
   Hexagon,
-  Maximize2,
-  Minimize2,
   Minus,
   MousePointer2,
   Pencil,
@@ -15,13 +13,13 @@ import {
   Triangle,
   Type,
 } from 'lucide-react'
-import { useState } from 'react'
 import type { DrawingShapeKind } from '../types'
 import type { DrawingTool } from '../types/diagram'
 import { DRAWING_COLORS } from '../utils/drawingRender'
+import { FloatingToolbar } from './FloatingToolbar'
 
 export const FREEHAND_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: string }[] = [
-  { id: 'select', icon: MousePointer2, label: 'Select / connect' },
+  { id: 'select', icon: MousePointer2, label: 'Select / move' },
   { id: 'pen', icon: Pencil, label: 'Pen' },
   { id: 'line', icon: Minus, label: 'Line' },
   { id: 'rectangle', icon: Square, label: 'Freehand rectangle' },
@@ -41,24 +39,6 @@ export const SHAPE_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: string;
   { id: 'shape-parallelogram', icon: Square, label: 'Parallelogram', kind: 'parallelogram' },
 ]
 
-const STORAGE_KEY = 'avb-drawing-toolbar-minimised'
-
-function loadMinimised(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function saveMinimised(value: boolean) {
-  try {
-    localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
-  } catch {
-    /* ignore */
-  }
-}
-
 interface DrawingToolbarProps {
   drawTool: DrawingTool
   onSelectTool: (tool: DrawingTool) => void
@@ -72,36 +52,15 @@ export function DrawingToolbar({
   drawColor,
   onSelectColor,
 }: DrawingToolbarProps) {
-  const [minimised, setMinimised] = useState(loadMinimised)
-
-  const toggle = () => {
-    setMinimised((prev) => {
-      const next = !prev
-      saveMinimised(next)
-      return next
-    })
-  }
-
-  if (minimised) {
-    return (
-      <div className="drawing-toolbar minimised">
-        <button
-          type="button"
-          className="drawing-toolbar-restore"
-          title="Show draw, shapes, and colour"
-          onClick={toggle}
-        >
-          <Pencil size={14} />
-          Draw
-          <Maximize2 size={14} />
-        </button>
-      </div>
-    )
-  }
-
   return (
-    <div className="drawing-toolbar">
-      <span className="drawing-toolbar-label">Draw</span>
+    <FloatingToolbar
+      storageKey="avb-draw-toolbar-v1"
+      className="drawing-toolbar"
+      title="Draw"
+      restoreLabel="Draw"
+      restoreIcon={<Pencil size={14} />}
+      defaultDock="top-left"
+    >
       {FREEHAND_TOOLS.map(({ id, icon: Icon, label }) => (
         <button
           key={id}
@@ -128,25 +87,18 @@ export function DrawingToolbar({
       ))}
       <span className="drawing-toolbar-divider" />
       <span className="drawing-toolbar-label">Colour</span>
-      {DRAWING_COLORS.map((color) => (
-        <button
-          key={color}
-          type="button"
-          className={`drawing-color-btn ${drawColor === color ? 'active' : ''}`}
-          style={{ background: color }}
-          title={color}
-          onClick={() => onSelectColor(color)}
-        />
-      ))}
-      <span className="drawing-toolbar-divider" />
-      <button
-        type="button"
-        className="drawing-tool-btn"
-        title="Minimise draw tools"
-        onClick={toggle}
-      >
-        <Minimize2 size={15} />
-      </button>
-    </div>
+      <div className="drawing-color-row">
+        {DRAWING_COLORS.map((color) => (
+          <button
+            key={color}
+            type="button"
+            className={`drawing-color-btn ${drawColor === color ? 'active' : ''}`}
+            style={{ background: color }}
+            title={color}
+            onClick={() => onSelectColor(color)}
+          />
+        ))}
+      </div>
+    </FloatingToolbar>
   )
 }

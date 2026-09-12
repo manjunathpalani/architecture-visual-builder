@@ -113,6 +113,31 @@ export function parseEdgeRouting(value?: string): EdgeRouting {
   return 'bezier'
 }
 
+export type IntegrationLineStyle = 'solid' | 'dashed' | 'dotted'
+export type IntegrationLineWeight = 'thin' | 'medium' | 'thick'
+
+export const LINE_STYLE_OPTIONS: Array<{ id: IntegrationLineStyle; label: string; hint: string }> = [
+  { id: 'solid', label: 'Solid', hint: 'Continuous line' },
+  { id: 'dashed', label: 'Dashed', hint: 'Broken line' },
+  { id: 'dotted', label: 'Dotted', hint: 'Dotted line' },
+]
+
+export const LINE_WEIGHT_OPTIONS: Array<{ id: IntegrationLineWeight; label: string }> = [
+  { id: 'thin', label: 'Thin' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'thick', label: 'Thick' },
+]
+
+export function parseLineStyle(value?: string): IntegrationLineStyle {
+  if (value === 'dashed' || value === 'dotted' || value === 'solid') return value
+  return 'solid'
+}
+
+export function parseLineWeight(value?: string): IntegrationLineWeight {
+  if (value === 'thin' || value === 'thick' || value === 'medium') return value
+  return 'medium'
+}
+
 export interface Position {
   x: number
   y: number
@@ -175,6 +200,8 @@ export interface Integration {
   description?: string
   interfaceSpec?: string
   color?: string
+  lineStyle?: IntegrationLineStyle
+  lineWeight?: IntegrationLineWeight
   changeStatus?: 'unchanged' | 'new' | 'modified' | 'retired'
   routing?: EdgeRouting
   waypoints?: Position[]
@@ -220,6 +247,18 @@ export type ArchitectureChangeKind = 'new' | 'update' | 'retire'
 
 export type ComponentChangeTaskStatus = 'pending' | 'instructed' | 'applying' | 'applied' | 'failed'
 
+/** User story under a feature, implemented by one or more linked components. */
+export interface FeatureUserStory {
+  id: string
+  title: string
+  description?: string
+  acceptanceCriteria?: string
+  functionalRequirements?: string
+  nonFunctionalRequirements?: string
+  /** Component system IDs this story is implemented by */
+  systemIds: string[]
+}
+
 /** One component’s work package inside a feature. */
 export interface ComponentChangeTask {
   id: string
@@ -229,6 +268,14 @@ export interface ComponentChangeTask {
   changeKind: ArchitectureChangeKind
   /** Architect’s intended change for this component */
   intent: string
+  /** User story this component work belongs to */
+  storyId?: string
+  /** Repo-relative path the agent should work in (copied from the component, editable) */
+  codePath?: string
+  /** Where to add new files, modules, or registration points */
+  addAt?: string
+  /** Where to update existing files, functions, or configs */
+  updateAt?: string
   /** Agent-ready implementation instruction (generated or hand-written) */
   instruction?: string
   instructionGeneratedAt?: string
@@ -245,10 +292,13 @@ export interface TechnicalChangeDesign {
   problem: string
   proposedChange: string
   acceptanceCriteria: string
+  functionalRequirements?: string
+  nonFunctionalRequirements?: string
   notes?: string
   status: ChangeDesignStatus
   createdAt: string
   updatedAt: string
+  stories?: FeatureUserStory[]
   tasks: ComponentChangeTask[]
 }
 

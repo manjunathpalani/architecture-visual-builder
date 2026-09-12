@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { GripHorizontal } from 'lucide-react'
 import { useViewport } from '@xyflow/react'
 import {
@@ -44,7 +44,7 @@ export function PropertiesFlyout({ nodeId, edgeId, compact = false, children }: 
     setPinned(false)
   }, [nodeId, edgeId])
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (pinned || moving) return
     const rect = anchorRect(nodeId, edgeId)
     if (!rect) return

@@ -1,4 +1,6 @@
+import './utils/suppressResizeObserverLoop'
 import { Component, StrictMode, type ErrorInfo, type ReactNode } from 'react'
+import { isResizeObserverLoop } from './utils/suppressResizeObserverLoop'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './index.css'
@@ -10,13 +12,16 @@ import {
   prefetchMicrosoftLogin,
 } from './utils/cloud/oauth'
 import { loadOAuthAppConfig } from './utils/cloud/oauthConfig'
+import { isVsCodeHost } from './utils/vscodeHost'
 
 class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
   static getDerivedStateFromError(error: Error) {
+    if (isResizeObserverLoop(error.message)) return {}
     return { error }
   }
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (isResizeObserverLoop(error.message)) return
     console.error(error, info)
   }
   render() {
@@ -41,7 +46,24 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 
 void startApp()
 
+function mountApp() {
+  const root = document.getElementById('root')
+  if (!root) return
+  createRoot(root).render(
+    <StrictMode>
+      <RootErrorBoundary>
+        <App />
+      </RootErrorBoundary>
+    </StrictMode>,
+  )
+}
+
 async function startApp() {
+  if (isVsCodeHost()) {
+    mountApp()
+    return
+  }
+
   if (isOAuthCallbackLocation()) {
     try {
       if (handleOAuthPopupCallback()) {
@@ -64,14 +86,5 @@ async function startApp() {
     if (config.microsoftClientId) void prefetchMicrosoftLogin(config.microsoftClientId)
     if (config.googleClientId) void prefetchGoogleLogin(config.googleClientId)
   })
-  const root = document.getElementById('root')
-  if (root) {
-    createRoot(root).render(
-      <StrictMode>
-        <RootErrorBoundary>
-          <App />
-        </RootErrorBoundary>
-      </StrictMode>,
-    )
-  }
+  mountApp()
 }

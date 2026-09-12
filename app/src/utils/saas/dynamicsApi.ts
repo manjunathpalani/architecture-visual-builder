@@ -1,3 +1,4 @@
+import { refreshDynamicsAccess } from '../cloud/oauth'
 import { getSaasConnection, setSaasConnection, saasTokenValid } from './credentials'
 import {
   SaasApiError,
@@ -87,7 +88,6 @@ export async function resolveDynamicsToken(instanceUrl: string, pasted?: string)
   const stored = getSaasConnection('dynamics')
   if (stored && stored.instanceUrl === instanceUrl && saasTokenValid(stored)) return stored.accessToken
   if (stored?.refreshToken && stored.clientId && stored.instanceUrl === instanceUrl) {
-    const { refreshDynamicsAccess } = await import('../cloud/oauth')
     return refreshDynamicsAccess()
   }
   throw new SaasApiError('Sign in to Dynamics 365 or paste an access token')

@@ -116,13 +116,115 @@ export function resolveEdgeColor(
   colorBy: FlowColorBy,
 ): string {
   if (!data) return DIRECTION_COLORS.outbound
-  if (data.flowPathColor && (colorBy === 'path' || data.focusRelation === 'out' || data.focusRelation === 'in')) {
+  const pathLocked = Boolean(data.flowPlayCurrent) || data.flowHopIndex != null
+  if (data.flowPathColor && (colorBy === 'path' || pathLocked)) {
     return data.flowPathColor
   }
-  if (colorBy === 'custom' && data.color) return data.color
+  if (data.color) return data.color
   if (colorBy === 'protocol') return PROTOCOL_COLORS[data.protocol] ?? DIRECTION_COLORS.outbound
-  if (colorBy === 'path' && data.color) return data.color
   return DIRECTION_COLORS[data.direction] ?? DIRECTION_COLORS.outbound
+}
+
+export function isolateFlowPath(trace: FlowTrace, pathId: string): FlowTrace {
+  const path = trace.paths.find((item) => item.id === pathId)
+  if (!path) return trace
+  const nodeIds = new Set(path.nodeIds)
+  const edgeHop = new Map<string, 'out' | 'in'>()
+  const edgePathColor = new Map<string, string>()
+  for (const id of path.edgeIds) {
+    edgeHop.set(id, trace.edgeHop.get(id) ?? 'out')
+    edgePathColor.set(id, path.color)
+  }
+  const directNodeIds = new Set([...trace.directNodeIds].filter((id) => nodeIds.has(id)))
+  if (path.nodeIds.length >= 2) directNodeIds.add(path.nodeIds[1])
+  return { paths: [path], edgeHop, edgePathColor, nodeIds, directNodeIds }
+}
+
+export function longestFlowPath(trace: FlowTrace | null | undefined): FlowPath | null {
+  if (!trace || trace.paths.length === 0) return null
+  return [...trace.paths].sort((a, b) => b.nodeIds.length - a.nodeIds.length || b.edgeIds.length - a.edgeIds.length)[0]
+}
+
+export function traceFromSinglePath(path: FlowPath): FlowTrace {
+  const nodeIds = new Set(path.nodeIds)
+  const edgeHop = new Map<string, 'out' | 'in'>()
+  const edgePathColor = new Map<string, string>()
+  path.edgeIds.forEach((id) => {
+    edgeHop.set(id, 'out')
+    edgePathColor.set(id, path.color)
+  })
+  const directNodeIds = new Set<string>()
+  if (path.nodeIds[0]) directNodeIds.add(path.nodeIds[0])
+  if (path.nodeIds[1]) directNodeIds.add(path.nodeIds[1])
+  return { paths: [path], edgeHop, edgePathColor, nodeIds, directNodeIds }
+}
+
+export function findPathBetween(
+  edges: Edge<IntegrationEdgeData>[],
+  nodeLabels: Map<string, string>,
+  fromId: string,
+  toId: string,
+): FlowPath | null {
+  if (!fromId || !toId || fromId === toId) return null
+  const flowEdges: FlowEdge[] = edges
+    .filter((edge) => edge.source && edge.target && nodeLabels.has(edge.source) && nodeLabels.has(edge.target))
+    .map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      direction: edge.data?.direction ?? 'outbound',
+    }))
+
+  const search = (directed: boolean): FlowPath | null => {
+    const outgoing = new Map<string, Array<{ nodeId: string; edgeId: string }>>()
+    for (const edge of flowEdges) {
+      const hops = directed
+        ? directedHops(edge)
+        : [
+            { from: edge.source, to: edge.target },
+            { from: edge.target, to: edge.source },
+          ]
+      for (const hop of hops) {
+        const list = outgoing.get(hop.from) ?? []
+        list.push({ nodeId: hop.to, edgeId: edge.id })
+        outgoing.set(hop.from, list)
+      }
+    }
+    const parent = new Map<string, { prev: string; edgeId: string }>()
+    const seen = new Set<string>([fromId])
+    const queue = [fromId]
+    while (queue.length) {
+      const current = queue.shift()!
+      for (const step of outgoing.get(current) ?? []) {
+        if (seen.has(step.nodeId)) continue
+        seen.add(step.nodeId)
+        parent.set(step.nodeId, { prev: current, edgeId: step.edgeId })
+        if (step.nodeId === toId) {
+          const nodeIds = [toId]
+          const edgeIds: string[] = []
+          let cursor = toId
+          while (cursor !== fromId) {
+            const hop = parent.get(cursor)
+            if (!hop) break
+            edgeIds.unshift(hop.edgeId)
+            nodeIds.unshift(hop.prev)
+            cursor = hop.prev
+          }
+          return {
+            id: `between-${fromId}-${toId}`,
+            nodeIds,
+            edgeIds,
+            labels: nodeIds.map((id) => nodeLabels.get(id) ?? id),
+            color: PATH_COLORS[0],
+          }
+        }
+        queue.push(step.nodeId)
+      }
+    }
+    return null
+  }
+
+  return search(true) ?? search(false)
 }
 
 export function traceEndToEnd(

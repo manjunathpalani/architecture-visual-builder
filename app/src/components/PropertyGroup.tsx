@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 
-const STORAGE_KEY = 'avb-property-groups'
+const STORAGE_KEY = 'avb-property-groups-v2'
 
 export type PropertyGroupId =
   | 'identity'
@@ -26,7 +26,7 @@ export const SYSTEM_PROPERTY_GROUPS: PropertyGroupId[] = [
 
 export const EDGE_PROPERTY_GROUPS: PropertyGroupId[] = ['identity', 'line', 'spec']
 
-const DEFAULT_OPEN: PropertyGroupId[] = ['identity', 'state', 'feature']
+const DEFAULT_OPEN: PropertyGroupId[] = ['identity', 'line', 'state', 'feature']
 
 function loadOpenGroups(): Set<PropertyGroupId> {
   try {

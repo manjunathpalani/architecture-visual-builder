@@ -10,6 +10,7 @@ import {
   type StoredAiSettings,
 } from '../utils/aiProviders'
 import { fetchAiStatus, verifyAiKey, type AiStatus } from '../utils/aiDiagram'
+import { isVsCodeHost } from '../utils/vscodeHost'
 
 interface AiEnginesPanelProps {
   onClose?: () => void
@@ -129,7 +130,9 @@ export function AiEnginesPanel({ onClose, embedded = false }: AiEnginesPanelProp
             </h2>
             <p>
               Paste a key and click Save &amp; test. We call the provider to confirm the key before
-              keeping it. Keys stay in this browser and are sent only to the local Vite proxy.
+              keeping it. {isVsCodeHost()
+                ? 'Keys stay in this editor and are sent through the VS Code extension (no Vite server needed).'
+                : 'Keys stay in this browser and are sent only to the local Vite proxy.'}
             </p>
           </div>
           {onClose && (
@@ -141,7 +144,9 @@ export function AiEnginesPanel({ onClose, embedded = false }: AiEnginesPanelProp
       )}
       {embedded && (
         <p className="settings-lead">
-          Paste a key and click Save &amp; test. Keys stay in this browser and are sent only to the local Vite proxy.
+          Paste a key and click Save &amp; test. {isVsCodeHost()
+            ? 'Keys stay in this editor and are sent through the VS Code extension.'
+            : 'Keys stay in this browser and are sent only to the local Vite proxy.'}
         </p>
       )}
 

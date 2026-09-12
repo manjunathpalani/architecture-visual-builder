@@ -185,6 +185,38 @@ export function hitTestDrawing(
   }
 }
 
+export function drawingBounds(
+  element: DrawingElement,
+): { x: number; y: number; width: number; height: number } | null {
+  if (element.type === 'rectangle' && element.points.length >= 2) {
+    return rectFromPoints(element.points[0], element.points[1])
+  }
+  if (element.points.length === 0) return null
+  if (element.type === 'text') {
+    const anchor = element.points[0]
+    const w = Math.max(24, (element.text?.length ?? 4) * (element.fontSize ?? 14) * 0.55)
+    const h = element.fontSize ?? 14
+    return { x: anchor.x, y: anchor.y - h, width: w, height: h }
+  }
+  const xs = element.points.map((point) => point.x)
+  const ys = element.points.map((point) => point.y)
+  const x = Math.min(...xs)
+  const y = Math.min(...ys)
+  return {
+    x,
+    y,
+    width: Math.max(1, Math.max(...xs) - x),
+    height: Math.max(1, Math.max(...ys) - y),
+  }
+}
+
+export function boxesIntersect(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
 function distanceToSegment(p: DrawingPoint, a: DrawingPoint, b: DrawingPoint) {
   const dx = b.x - a.x
   const dy = b.y - a.y

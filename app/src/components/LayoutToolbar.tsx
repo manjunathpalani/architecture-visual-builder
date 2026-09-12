@@ -1,26 +1,9 @@
 import { useCallback, useState } from 'react'
 import { useReactFlow, type Edge, type Node } from '@xyflow/react'
-import { Columns3, Grid3x3, Lock, LockKeyholeOpen, Maximize2, Minimize2, RotateCcw, WandSparkles, Workflow } from 'lucide-react'
+import { BoxSelect, Columns3, Grid3x3, Lock, LockKeyholeOpen, Maximize2, RotateCcw, WandSparkles, Workflow } from 'lucide-react'
 import { layoutByTier, layoutFlow, layoutGrid, layoutSmart } from '../utils/autoLayout'
 import type { IntegrationEdgeData, IntegrationNodeData } from '../utils/jsonIO'
-
-const STORAGE_KEY = 'avb-arrange-toolbar-minimised'
-
-function loadMinimised(): boolean {
-  try {
-    return localStorage.getItem(STORAGE_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function saveMinimised(value: boolean) {
-  try {
-    localStorage.setItem(STORAGE_KEY, value ? '1' : '0')
-  } catch {
-    /* ignore */
-  }
-}
+import { FloatingToolbar } from './FloatingToolbar'
 
 interface LayoutToolbarProps {
   onLayoutApplied: (nodes: Node<IntegrationNodeData>[], edges: Edge<IntegrationEdgeData>[]) => void
@@ -29,6 +12,7 @@ interface LayoutToolbarProps {
   onToggleLayoutLock?: () => void
   selectedNodeCount?: number
   onGroupSelection?: () => void
+  onSelectAll?: () => void
 }
 
 type LayoutSnapshot = Map<
@@ -55,9 +39,9 @@ export function LayoutToolbar({
   onToggleLayoutLock,
   selectedNodeCount = 0,
   onGroupSelection,
+  onSelectAll,
 }: LayoutToolbarProps) {
   const { getNodes, getEdges, setNodes, fitView } = useReactFlow()
-  const [minimised, setMinimised] = useState(loadMinimised)
   const [previousLayout, setPreviousLayout] = useState<LayoutSnapshot | null>(null)
 
   const applyLayout = useCallback(
@@ -93,34 +77,8 @@ export function LayoutToolbar({
     window.setTimeout(() => fitView({ padding: 0.18, duration: 450 }), 60)
   }, [fitView, getEdges, getNodes, onLayoutApplied, previousLayout, setNodes])
 
-  const toggle = () => {
-    setMinimised((prev) => {
-      const next = !prev
-      saveMinimised(next)
-      return next
-    })
-  }
-
-  if (!embedded && minimised) {
-    return (
-      <div className="layout-toolbar minimised">
-        <button
-          type="button"
-          className="drawing-toolbar-restore"
-          title="Show arrange"
-          onClick={toggle}
-        >
-          <Workflow size={14} />
-          Arrange
-          <Maximize2 size={14} />
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div className={embedded ? 'canvas-side-arrange' : 'layout-toolbar'}>
-      {!embedded && <span className="layout-toolbar-label">Arrange</span>}
+  const buttons = (
+    <>
       <button
         type="button"
         className="layout-btn"
@@ -161,6 +119,17 @@ export function LayoutToolbar({
         <Grid3x3 size={15} />
         Grid
       </button>
+      {onSelectAll && (
+        <button
+          type="button"
+          className="layout-btn"
+          title="Select every component on this diagram (Ctrl+A)"
+          onClick={onSelectAll}
+        >
+          <BoxSelect size={15} />
+          Select all
+        </button>
+      )}
       {onGroupSelection && (
         <button
           type="button"
@@ -204,19 +173,23 @@ export function LayoutToolbar({
           {layoutLocked ? 'Locked' : 'Lock'}
         </button>
       )}
-      {!embedded && (
-        <>
-          <span className="drawing-toolbar-divider" />
-          <button
-            type="button"
-            className="drawing-tool-btn"
-            title="Minimise arrange"
-            onClick={toggle}
-          >
-            <Minimize2 size={15} />
-          </button>
-        </>
-      )}
-    </div>
+    </>
+  )
+
+  if (embedded) {
+    return <div className="canvas-side-arrange">{buttons}</div>
+  }
+
+  return (
+    <FloatingToolbar
+      storageKey="avb-arrange-toolbar-v1"
+      className="layout-toolbar"
+      title="Arrange"
+      restoreLabel="Arrange"
+      restoreIcon={<Workflow size={14} />}
+      defaultDock="top-right"
+    >
+      {buttons}
+    </FloatingToolbar>
   )
 }

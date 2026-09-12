@@ -26,8 +26,12 @@ import {
   DRAWING_SHAPE_LABELS,
   ARROW_DIRECTION_OPTIONS,
   EDGE_ROUTING_OPTIONS,
+  LINE_STYLE_OPTIONS,
+  LINE_WEIGHT_OPTIONS,
   SYSTEM_TYPE_CONFIG,
   parseEdgeRouting,
+  parseLineStyle,
+  parseLineWeight,
 } from '../types'
 import type { DiagramPath } from '../types/diagram'
 import { getNodeColor, parseNodeDisplay, sizeForNodeDisplay, type NodeDisplayStyle } from '../utils/nodeStyle'
@@ -190,11 +194,24 @@ export function PropertiesPanel({
           {headerActions}
         </div>
         <div className="property-form" ref={formRef}>
+          {isShape && (
+            <label className="shape-text-property">
+              Text
+              <textarea
+                rows={4}
+                value={data.label}
+                placeholder="Type the text shown on this shape"
+                onChange={(e) => onUpdateNode(selectedNode.id, { label: e.target.value })}
+              />
+              <span className="code-link-hint">Shown inside the shape. You can also double-click the shape on the canvas.</span>
+            </label>
+          )}
           <PropertyGroupToolbar
             onExpandAll={() => expandGroups(SYSTEM_PROPERTY_GROUPS)}
             onMergeAll={mergeAll}
           />
 
+          {!isShape && (
           <PropertyGroup
             id="identity"
             title="Identity"
@@ -210,6 +227,7 @@ export function PropertiesPanel({
             />
           </label>
           </PropertyGroup>
+          )}
 
           <PropertyGroup
             id="appearance"
@@ -782,10 +800,78 @@ export function PropertiesPanel({
           <PropertyGroup
             id="line"
             title="Line & arrows"
-            summary={EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.label}
+            summary={[
+              EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.label,
+              data.color ? 'custom color' : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             expanded={isOpen('line')}
             onToggle={toggle}
           >
+          <div className="color-picker-section">
+            <span className="color-picker-label">Line color</span>
+            <p className="code-link-hint">Shown on this integration regardless of the canvas Flow color mode.</p>
+            <div className="color-presets">
+              {COLOR_PRESETS.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  className={`color-swatch ${data.color === color ? 'active' : ''}`}
+                  style={{ background: color }}
+                  title={color}
+                  onClick={() => onUpdateEdge(selectedEdge.id, { color })}
+                />
+              ))}
+            </div>
+            <div className="color-custom">
+              <input
+                type="color"
+                value={data.color ?? '#6366f1'}
+                onChange={(e) => onUpdateEdge(selectedEdge.id, { color: e.target.value })}
+              />
+              <button
+                type="button"
+                className="btn-reset-color"
+                onClick={() => onUpdateEdge(selectedEdge.id, { color: undefined })}
+              >
+                Reset default
+              </button>
+            </div>
+          </div>
+          <div className="arrow-direction-section">
+            <span className="color-picker-label">Line style</span>
+            <div className="arrow-direction-grid line-weight-grid">
+              {LINE_STYLE_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`arrow-direction-btn ${parseLineStyle(data.lineStyle) === option.id ? 'active' : ''}`}
+                  title={option.hint}
+                  onClick={() => onUpdateEdge(selectedEdge.id, { lineStyle: option.id })}
+                >
+                  <strong className={`line-style-preview style-${option.id}`} />
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="arrow-direction-section">
+            <span className="color-picker-label">Line thickness</span>
+            <div className="arrow-direction-grid line-weight-grid">
+              {LINE_WEIGHT_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`arrow-direction-btn ${parseLineWeight(data.lineWeight) === option.id ? 'active' : ''}`}
+                  onClick={() => onUpdateEdge(selectedEdge.id, { lineWeight: option.id })}
+                >
+                  <strong className={`line-weight-preview weight-${option.id}`} />
+                  <span>{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
           <label>
             Line routing
             <select
@@ -932,37 +1018,6 @@ export function PropertiesPanel({
             </span>
           </label>
 
-          <div className="color-picker-section">
-            <span className="color-picker-label">Flow color</span>
-            <p className="code-link-hint">Used when Flow color is set to Custom on the canvas.</p>
-            <div className="color-presets">
-              {COLOR_PRESETS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  className={`color-swatch ${data.color === color ? 'active' : ''}`}
-                  style={{ background: color }}
-                  title={color}
-                  onClick={() => onUpdateEdge(selectedEdge.id, { color })}
-                />
-              ))}
-            </div>
-            <div className="color-custom">
-              <input
-                type="color"
-                value={data.color ?? '#6366f1'}
-                onChange={(e) => onUpdateEdge(selectedEdge.id, { color: e.target.value })}
-              />
-              <button
-                type="button"
-                className="btn-reset-color"
-                onClick={() => onUpdateEdge(selectedEdge.id, { color: undefined })}
-              >
-                Reset default
-              </button>
-            </div>
-          </div>
-
           {(isApiIntegration(data) || data.interfaceSpec) && (
             <InterfaceSpecSection
               interfaceSpecJson={data.interfaceSpec}
@@ -1036,6 +1091,8 @@ function liveEdgeData(
     description: integration.description ?? '',
     interfaceSpec: integration.interfaceSpec,
     color: integration.color,
+    lineStyle: integration.lineStyle,
+    lineWeight: integration.lineWeight,
     changeStatus: integration.changeStatus,
     routing: parseEdgeRouting(integration.routing),
     waypoints: integration.waypoints,

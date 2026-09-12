@@ -13,6 +13,25 @@ export default defineConfig(({ mode }) => {
 
   return {
   plugins: [react(), xaiDiagramPlugin(), jiraProxyPlugin(), saasProxyPlugin(), oauthConfigPlugin()],
+  optimizeDeps: {
+    include: ['pptxgenjs', 'docx', 'jszip'],
+  },
+  build: {
+    // Main app chunk is ~575 kB after splitting React / xyflow / export libs.
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'xyflow', test: /node_modules[\\/]@xyflow(?:[\\/]|$)/, priority: 30 },
+            { name: 'lucide', test: /node_modules[\\/]lucide-react(?:[\\/]|$)/, priority: 25 },
+            { name: 'react-vendor', test: /node_modules[\\/](?:react-dom|scheduler|react)(?:[\\/]|$)/, priority: 20 },
+            { name: 'dagre', test: /node_modules[\\/]@dagrejs(?:[\\/]|$)/, priority: 15 },
+          ],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       '/api/github': {

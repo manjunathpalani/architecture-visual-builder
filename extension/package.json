@@ -26,6 +26,9 @@
           },
           {
             "filenamePattern": "*.avb.json"
+          },
+          {
+            "filenamePattern": "*architecture*.json"
           }
         ],
         "priority": "default"
@@ -47,7 +50,7 @@
       "explorer/context": [
         {
           "command": "architectureVisualBuilder.open",
-          "when": "resourceExtname == .json",
+          "when": "resourceExtname == .json && (resourceFilename =~ /architecture/i || resourceFilename =~ /\\.avb\\.json$/i)",
           "group": "navigation@10"
         }
       ],

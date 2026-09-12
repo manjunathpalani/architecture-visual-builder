@@ -1,3 +1,5 @@
+import * as os from 'node:os'
+import * as path from 'node:path'
 import * as vscode from 'vscode'
 
 export interface AgentRunRequest {
@@ -89,11 +91,48 @@ export async function runLinkedAgent(request: AgentRunRequest): Promise<void> {
   }
 }
 
+export function isArchitectureJson(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text) as { metadata?: unknown; systems?: unknown; integrations?: unknown }
+    return Boolean(parsed?.metadata && Array.isArray(parsed.systems) && Array.isArray(parsed.integrations))
+  } catch {
+    return false
+  }
+}
+
+export function isArchitectureFilename(uri: vscode.Uri): boolean {
+  const name = uri.path.split('/').pop()?.toLowerCase() ?? ''
+  return name.endsWith('.avb.json') || name.endsWith('.architecture.json') || name.includes('architecture')
+}
+
+export function suggestedArchitectureUri(): vscode.Uri {
+  const folder = vscode.workspace.workspaceFolders?.[0]
+  const name = 'architecture.avb.json'
+  if (folder) return vscode.Uri.joinPath(folder.uri, name)
+  return vscode.Uri.file(path.join(os.homedir(), name))
+}
+
 export async function openWorkspacePath(gitPath: string): Promise<void> {
-  const cleaned = gitPath.replace(/^[\\/]/, '')
-  const folders = vscode.workspace.workspaceFolders ?? []
-  for (const folder of folders) {
-    const uri = vscode.Uri.joinPath(folder.uri, cleaned)
+  const raw = gitPath.trim().replace(/^["']|["']$/g, '')
+  if (!raw) return
+
+  const candidates: vscode.Uri[] = []
+  if (/^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith('\\\\') || path.isAbsolute(raw)) {
+    candidates.push(vscode.Uri.file(raw))
+  }
+
+  const posix = raw.replace(/\\/g, '/').replace(/^\/+/, '')
+  const segments = posix.split('/').filter(Boolean)
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    if (segments.length) candidates.push(vscode.Uri.joinPath(folder.uri, ...segments))
+    candidates.push(vscode.Uri.file(path.join(folder.uri.fsPath, raw)))
+  }
+
+  const seen = new Set<string>()
+  for (const uri of candidates) {
+    const key = uri.toString()
+    if (seen.has(key)) continue
+    seen.add(key)
     try {
       const stat = await vscode.workspace.fs.stat(uri)
       if (stat.type & vscode.FileType.Directory) {
@@ -104,12 +143,19 @@ export async function openWorkspacePath(gitPath: string): Promise<void> {
       await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside })
       return
     } catch {
-      /* try next folder */
+      /* try next candidate */
     }
   }
-  const hits = await vscode.workspace.findFiles(cleaned, '**/node_modules/**', 1)
-  if (hits[0]) {
-    const doc = await vscode.workspace.openTextDocument(hits[0])
-    await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside })
+
+  const glob = segments.join('/')
+  if (glob) {
+    const hits = await vscode.workspace.findFiles(`**/${glob}`, '**/node_modules/**', 5)
+    if (hits[0]) {
+      const doc = await vscode.workspace.openTextDocument(hits[0])
+      await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.Beside })
+      return
+    }
   }
+
+  void vscode.window.showWarningMessage(`Could not open "${raw}" in the workspace.`)
 }

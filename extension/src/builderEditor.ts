@@ -1,6 +1,15 @@
 import * as vscode from 'vscode'
-import { emptyArchitectureJson, generateWithLanguageModel, openWorkspacePath, runLinkedAgent } from './agent'
-import { getBuilderHtml, missingMediaHtml } from './webviewHtml'
+import {
+  emptyArchitectureJson,
+  generateWithLanguageModel,
+  isArchitectureFilename,
+  isArchitectureJson,
+  openWorkspacePath,
+  runLinkedAgent,
+  suggestedArchitectureUri,
+} from './agent'
+import { handleAiApi } from './aiProxy'
+import { getBuilderHtml, getNonce, missingMediaHtml, notArchitectureHtml } from './webviewHtml'
 
 interface WebviewMessage {
   type: string
@@ -15,6 +24,7 @@ interface WebviewMessage {
   path?: string
   apply?: boolean
   changeKind?: 'new' | 'update' | 'retire'
+  body?: Record<string, unknown>
 }
 
 export class BuilderEditorProvider implements vscode.CustomTextEditorProvider {
@@ -43,11 +53,27 @@ export class BuilderEditorProvider implements vscode.CustomTextEditorProvider {
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')],
     }
 
+    const existing = document.getText().trim()
+    if (existing && !isArchitectureJson(existing) && !isArchitectureFilename(document.uri)) {
+      webviewPanel.webview.html = notArchitectureHtml(document.uri)
+      void vscode.window.showErrorMessage(
+        `"${nameFromUri(document.uri)}" is not an architecture diagram. Open a .avb.json / .architecture.json file, or run Architecture Visual Builder: New Architecture Diagram.`,
+      )
+      return
+    }
+
     try {
       await vscode.workspace.fs.stat(media)
-      webviewPanel.webview.html = getBuilderHtml(webviewPanel.webview, this.context.extensionUri)
+      webviewPanel.webview.html = getBuilderHtml(
+        webviewPanel.webview,
+        this.context.extensionUri,
+        getNonce(),
+      )
     } catch {
       webviewPanel.webview.html = missingMediaHtml()
+      vscode.window.showErrorMessage(
+        'Architecture Visual Builder webview bundle is missing. From the repo run: cd app && npm run build:single && cd ../extension && npm run build',
+      )
       return
     }
 
@@ -64,6 +90,20 @@ export class BuilderEditorProvider implements vscode.CustomTextEditorProvider {
     const writeDocument = async (json: string) => {
       const next = json.endsWith('\n') ? json : `${json}\n`
       if (document.getText() === next || document.getText() === json) return
+
+      const current = document.getText().trim()
+      if (current && !isArchitectureJson(current) && !isArchitectureFilename(document.uri)) {
+        const pick = await vscode.window.showSaveDialog({
+          defaultUri: suggestedArchitectureUri(),
+          filters: { 'Architecture JSON': ['avb.json', 'architecture.json', 'json'] },
+          saveLabel: 'Save architecture',
+        })
+        if (!pick) return
+        await vscode.workspace.fs.writeFile(pick, Buffer.from(next, 'utf8'))
+        await vscode.commands.executeCommand('vscode.openWith', pick, BuilderEditorProvider.viewType)
+        return
+      }
+
       applying = true
       const edit = new vscode.WorkspaceEdit()
       edit.replace(document.uri, fullRange(document), next)
@@ -96,6 +136,50 @@ export class BuilderEditorProvider implements vscode.CustomTextEditorProvider {
         case 'openPath':
           if (message.path) await openWorkspacePath(message.path)
           return
+        case 'aiApi': {
+          const requestId = message.requestId ?? ''
+          const result = await handleAiApi(message.path ?? '', message.body)
+          webviewPanel.webview.postMessage({
+            type: 'aiApiResult',
+            requestId,
+            status: result.status,
+            payload: result.payload,
+          })
+          return
+        }
+        case 'pickJsonFile': {
+          const requestId = message.requestId ?? ''
+          try {
+            const picked = await vscode.window.showOpenDialog({
+              canSelectMany: false,
+              canSelectFiles: true,
+              filters: { 'Architecture JSON': ['json'] },
+              title: 'Open architecture JSON',
+            })
+            if (!picked?.[0]) {
+              webviewPanel.webview.postMessage({ type: 'pickJsonResult', requestId, cancelled: true })
+              return
+            }
+            const bytes = await vscode.workspace.fs.readFile(picked[0])
+            const json = Buffer.from(bytes).toString('utf8')
+            if (!isArchitectureJson(json)) {
+              webviewPanel.webview.postMessage({
+                type: 'pickJsonResult',
+                requestId,
+                error: `"${picked[0].path.split('/').pop()}" is not architecture JSON (needs metadata, systems, and integrations).`,
+              })
+              return
+            }
+            webviewPanel.webview.postMessage({ type: 'pickJsonResult', requestId, json })
+          } catch (err) {
+            webviewPanel.webview.postMessage({
+              type: 'pickJsonResult',
+              requestId,
+              error: err instanceof Error ? err.message : 'Could not open that file',
+            })
+          }
+          return
+        }
         case 'generateInstruction': {
           const requestId = message.requestId ?? ''
           try {

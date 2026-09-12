@@ -27,22 +27,29 @@ import {
   CHANGE_DESIGN_STATUS_LABELS,
   CHANGE_KIND_LABELS,
   applyComponentChange,
+  assignSystemsToStory,
+  assignTaskToStory,
   changeKindFromStatus,
   buildDesignPackMarkdown,
   buildInstructionMarkdown,
   copyText,
-  countTasksByKind,
+  countStories,
   createEmptyDesign,
   createTaskFromSystem,
   designFileSlug,
   downloadMarkdown,
+  formatTaskCodePath,
   generateComponentInstruction,
+  generateRequirements,
+  applyGeneratedRequirements,
   listArchitectureChanges,
   listDesignableSystems,
   removeDesign,
   syncTasksFromArchitecture,
   upsertDesign,
 } from '../utils/changeDesign'
+import { FeatureStoriesPanel } from './FeatureStoriesPanel'
+import { FeatureStoryTree, type FeatureTreeSelection } from './FeatureStoryTree'
 
 interface ChangeDesignModalProps {
   document: ArchitectureDocument
@@ -70,7 +77,13 @@ export function ChangeDesignModal({
   const [draft, setDraft] = useState<TechnicalChangeDesign | null>(() => {
     if (focusSystemId) {
       const hit = existing.find((item) => item.tasks.some((task) => task.systemId === focusSystemId))
-      return hit ? { ...hit, tasks: hit.tasks.map((task) => ({ ...task })) } : createEmptyDesign(document, focusSystemId)
+      return hit
+        ? {
+            ...hit,
+            stories: hit.stories?.map((story) => ({ ...story, systemIds: [...story.systemIds] })),
+            tasks: hit.tasks.map((task) => ({ ...task })),
+          }
+        : createEmptyDesign(document, focusSystemId)
     }
     if (existing.length === 0) return createEmptyDesign(document)
     return null
@@ -80,6 +93,9 @@ export function ChangeDesignModal({
   const [generatingAll, setGeneratingAll] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [focusStoryId, setFocusStoryId] = useState<string | null>(null)
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
+  const [generatingReqs, setGeneratingReqs] = useState<string | null>(null)
   const [provider, setProvider] = useState<AiProviderId>(loadAiSettings().selectedProvider)
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [size, setSize] = useState<'dialog' | 'expanded'>(() => {
@@ -103,6 +119,16 @@ export function ChangeDesignModal({
     void fetchAiStatus().then(setStatus)
   }, [])
 
+  useEffect(() => {
+    const targetId = focusTaskId
+      ? `[data-task-id="${focusTaskId}"]`
+      : focusStoryId
+        ? `[data-story-id="${focusStoryId}"]`
+        : null
+    if (!targetId) return
+    window.document.querySelector(targetId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [focusStoryId, focusTaskId, view])
+
   const info = getProvider(provider)
   const serverReady = Boolean(status?.providers.find((item) => item.id === provider)?.configured)
   const hasKey = serverReady || Boolean(loadAiSettings().keys[provider]?.trim())
@@ -123,13 +149,32 @@ export function ChangeDesignModal({
     const next = createEmptyDesign(document, seedSystemId)
     setDraft(next)
     setView('edit')
+    setFocusStoryId(null)
+    setFocusTaskId(null)
     setMessage(null)
   }
 
-  const openExisting = (design: TechnicalChangeDesign) => {
-    setDraft({ ...design, tasks: design.tasks.map((task) => ({ ...task })) })
+  const openExisting = (design: TechnicalChangeDesign, selection?: FeatureTreeSelection) => {
+    setDraft({
+      ...design,
+      stories: design.stories?.map((story) => ({ ...story, systemIds: [...story.systemIds] })),
+      tasks: design.tasks.map((task) => ({ ...task })),
+    })
     setView('edit')
+    setFocusStoryId(selection?.storyId ?? null)
+    setFocusTaskId(selection?.taskId ?? null)
     setMessage(null)
+  }
+
+  const handleTreeSelect = (selection: FeatureTreeSelection) => {
+    if (draft && selection.designId === draft.id && view === 'edit') {
+      setFocusStoryId(selection.storyId ?? null)
+      setFocusTaskId(selection.taskId ?? null)
+      return
+    }
+    const design = existing.find((item) => item.id === selection.designId)
+    if (!design) return
+    openExisting(design, selection)
   }
 
   const updateDraft = (patch: Partial<TechnicalChangeDesign>) => {
@@ -143,10 +188,26 @@ export function ChangeDesignModal({
     const system = systems.find((item) => item.id === systemId)
     if (!system) return
     if (selectedIds.has(systemId)) {
-      updateDraft({ tasks: draft.tasks.filter((task) => task.systemId !== systemId) })
+      updateDraft({
+        tasks: draft.tasks.filter((task) => task.systemId !== systemId),
+        stories: (draft.stories ?? []).map((story) => ({
+          ...story,
+          systemIds: story.systemIds.filter((id) => id !== systemId),
+        })),
+      })
       return
     }
-    updateDraft({ tasks: [...draft.tasks, createTaskFromSystem(system)] })
+    const task = createTaskFromSystem(system)
+    if (focusStoryId) {
+      updateDraft(assignSystemsToStory(
+        { ...draft, tasks: [...draft.tasks, task] },
+        focusStoryId,
+        [...(draft.stories?.find((story) => story.id === focusStoryId)?.systemIds ?? []), systemId],
+        systems,
+      ))
+      return
+    }
+    updateDraft({ tasks: [...draft.tasks, task] })
   }
 
   const updateTask = (taskId: string, patch: Partial<ComponentChangeTask>) => {
@@ -349,8 +410,40 @@ export function ChangeDesignModal({
     setMessage('Translated new / update / retire architecture changes into work items')
   }
 
+  const runGenerateRequirements = async (storyId?: string) => {
+    if (!draft) return
+    setGeneratingReqs(storyId ?? 'feature')
+    setMessage(null)
+    const working = { ...draft, title: draft.title.trim() || 'Untitled feature' }
+    try {
+      const result = await generateRequirements({
+        document,
+        design: working,
+        storyId,
+        providerId: provider,
+      })
+      const next = applyGeneratedRequirements(working, result, storyId)
+      setDraft(next)
+      persist(next)
+      const scope = storyId
+        ? (working.stories ?? []).find((item) => item.id === storyId)?.title.trim() || 'this story'
+        : working.title
+      setMessage(
+        result.source === 'ai'
+          ? `Requirements populated for ${scope}.`
+          : result.error
+            ? `Template requirements for ${scope} (${result.error})`
+            : `Template requirements for ${scope}. Add an AI key to refine them.`,
+      )
+    } finally {
+      setGeneratingReqs(null)
+    }
+  }
+
   const isPage = variant === 'page'
   const expanded = isPage || size === 'expanded'
+  const storyCount = countStories(existing)
+  const componentCount = existing.reduce((sum, design) => sum + design.tasks.length, 0)
 
   return (
     <div
@@ -367,8 +460,8 @@ export function ChangeDesignModal({
               <Bot size={18} /> Feature and apply changes
             </h2>
             <p>
-              Define the feature, translate new vs update architecture into work instructions, then
-              apply them with a coding agent.
+              Define the feature and user stories, then generate agent instructions with the code
+              path and where to add or update. Apply them with a coding agent.
             </p>
           </div>
           <div className="dialog-header-actions">
@@ -410,7 +503,9 @@ export function ChangeDesignModal({
           <div className="change-design-body">
             <div className="change-design-list-toolbar">
               <p>
-                {existing.length} feature{existing.length === 1 ? '' : 's'} on {document.metadata.name}
+                {existing.length} feature{existing.length === 1 ? '' : 's'} · {storyCount} stor
+                {storyCount === 1 ? 'y' : 'ies'} · {componentCount} linked component
+                {componentCount === 1 ? '' : 's'} on {document.metadata.name}
               </p>
               <button type="button" className="btn-primary" onClick={() => openNew()}>
                 <Plus size={16} />
@@ -426,20 +521,7 @@ export function ChangeDesignModal({
                 </p>
               </div>
             ) : (
-              <ul className="change-design-list">
-                {existing.map((design) => (
-                  <li key={design.id}>
-                    <button type="button" className="change-design-list-item" onClick={() => openExisting(design)}>
-                      <strong>{design.title.trim() || 'Untitled feature'}</strong>
-                      <span>
-                        {CHANGE_DESIGN_STATUS_LABELS[design.status]} · {countTasksByKind(design).new} new ·{' '}
-                        {countTasksByKind(design).update} update · {design.tasks.length} work item
-                        {design.tasks.length === 1 ? '' : 's'}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <FeatureStoryTree designs={existing} onSelect={handleTreeSelect} />
             )}
           </div>
         )}
@@ -482,6 +564,26 @@ export function ChangeDesignModal({
                   Add {info.shortLabel} key
                 </button>
               )}
+            </div>
+
+            <div className="change-design-tree-panel">
+              <div className="change-design-components-header">
+                <h3>Feature tree</h3>
+                <span>
+                  {(draft.stories?.length ?? 0)} stor{(draft.stories?.length ?? 0) === 1 ? 'y' : 'ies'} ·{' '}
+                  {draft.tasks.length} component{draft.tasks.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <FeatureStoryTree
+                designs={existing}
+                design={draft}
+                selected={{
+                  designId: draft.id,
+                  storyId: focusStoryId ?? undefined,
+                  taskId: focusTaskId ?? undefined,
+                }}
+                onSelect={handleTreeSelect}
+              />
             </div>
 
             <div className="change-design-grid">
@@ -530,6 +632,43 @@ export function ChangeDesignModal({
                     onChange={(e) => updateDraft({ acceptanceCriteria: e.target.value })}
                   />
                 </label>
+                <div className="change-design-reqs-header">
+                  <span>Functional and non-functional requirements</span>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={Boolean(generatingReqs)}
+                    onClick={() => void runGenerateRequirements()}
+                  >
+                    {generatingReqs === 'feature' ? (
+                      <Loader2 size={14} className="spin" />
+                    ) : (
+                      <Sparkles size={14} />
+                    )}
+                    Populate with AI
+                  </button>
+                </div>
+                <p className="code-link-hint">
+                  Populate fills this feature and any user stories from the definition and architecture.
+                </p>
+                <label>
+                  Functional requirements
+                  <textarea
+                    rows={4}
+                    value={draft.functionalRequirements ?? ''}
+                    placeholder="What the system shall do. Use Populate with AI or write bullets."
+                    onChange={(e) => updateDraft({ functionalRequirements: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Non-functional requirements
+                  <textarea
+                    rows={3}
+                    value={draft.nonFunctionalRequirements ?? ''}
+                    placeholder="Security, performance, reliability, observability, compliance."
+                    onChange={(e) => updateDraft({ nonFunctionalRequirements: e.target.value })}
+                  />
+                </label>
                 <label>
                   Notes (optional)
                   <textarea
@@ -542,6 +681,15 @@ export function ChangeDesignModal({
               </div>
 
               <div className="change-design-components">
+                <FeatureStoriesPanel
+                  documentSystems={systems}
+                  draft={draft}
+                  focusStoryId={focusStoryId}
+                  generatingId={generatingReqs}
+                  onChange={(next) => setDraft(next)}
+                  onFocusStory={setFocusStoryId}
+                  onGenerateStory={(storyId) => void runGenerateRequirements(storyId)}
+                />
                 <div className="change-design-components-header">
                   <h3>New vs update</h3>
                   <span>{draft.tasks.length} work items</span>
@@ -657,8 +805,14 @@ export function ChangeDesignModal({
               ) : (
                 draft.tasks.map((task) => {
                   const missing = !systems.some((item) => item.id === task.systemId)
+                  const system = systems.find((item) => item.id === task.systemId)
+                  const pathHint = formatTaskCodePath(task, system)
                   return (
-                    <article key={task.id} className="change-design-task">
+                    <article
+                      key={task.id}
+                      data-task-id={task.id}
+                      className={`change-design-task${focusTaskId === task.id ? ' is-active' : ''}`}
+                    >
                       <div className="change-design-task-top">
                         <div>
                           <strong>{task.systemLabel}</strong>
@@ -668,6 +822,7 @@ export function ChangeDesignModal({
                           {task.status === 'applying' && <span className="change-design-missing">Applying</span>}
                           {task.status === 'applied' && <span className="change-kind-badge kind-applied">Applied</span>}
                           {missing && <span className="change-design-missing">Missing from canvas</span>}
+                          {pathHint && <span className="change-design-code-path">{pathHint}</span>}
                         </div>
                         <div className="change-design-task-actions">
                           <button
@@ -719,6 +874,50 @@ export function ChangeDesignModal({
                           )}
                         </div>
                       </div>
+                      <label>
+                        User story
+                        <select
+                          value={task.storyId ?? ''}
+                          onChange={(e) => {
+                            const storyId = e.target.value || undefined
+                            setDraft(assignTaskToStory(draft, task.id, storyId))
+                            setFocusStoryId(storyId ?? null)
+                          }}
+                        >
+                          <option value="">Unassigned</option>
+                          {(draft.stories ?? []).map((story) => (
+                            <option key={story.id} value={story.id}>
+                              {story.title.trim() || 'Untitled story'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Code path
+                        <input
+                          value={task.codePath ?? ''}
+                          placeholder={system?.properties?.gitPath || 'src/…'}
+                          onChange={(e) => updateTask(task.id, { codePath: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Where to add
+                        <textarea
+                          rows={2}
+                          value={task.addAt ?? ''}
+                          placeholder="New files, folders, modules, and registration points"
+                          onChange={(e) => updateTask(task.id, { addAt: e.target.value })}
+                        />
+                      </label>
+                      <label>
+                        Where to update
+                        <textarea
+                          rows={2}
+                          value={task.updateAt ?? ''}
+                          placeholder="Existing files, functions, configs, and callers to change"
+                          onChange={(e) => updateTask(task.id, { updateAt: e.target.value })}
+                        />
+                      </label>
                       <label>
                         Intent for this component
                         <textarea

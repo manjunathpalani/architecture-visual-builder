@@ -1,10 +1,15 @@
 import { oauthRedirectUri, pkceChallenge, randomUrlString } from './pkce'
 import {
+  getGoogleTokens,
+  getMicrosoftTokens,
   setGoogleTokens,
   setMicrosoftTokens,
   type CloudAccountProvider,
   type CloudOAuthTokens,
 } from './cloudCredentials'
+import { resolveGoogleClientId, resolveMicrosoftClientId } from './oauthConfig'
+import { getSaasConnection, setSaasConnection } from '../saas/credentials'
+import { normalizeInstanceUrl } from '../saas/instanceUrl'
 
 const SESSION_KEY = 'avb-oauth-pending'
 const RESULT_KEY = 'avb-oauth-result'
@@ -117,7 +122,6 @@ export function peekPreparedLoginUrl(provider: CloudAccountProvider, clientId: s
 }
 
 export async function prefetchMicrosoftLogin(clientId?: string): Promise<string | null> {
-  const { resolveMicrosoftClientId } = await import('./oauthConfig')
   const id = (await resolveMicrosoftClientId(clientId)).trim()
   if (!id) return null
   const prepared = await createAuthorization({
@@ -133,7 +137,6 @@ export async function prefetchMicrosoftLogin(clientId?: string): Promise<string 
 }
 
 export async function prefetchGoogleLogin(clientId?: string, includeGcs = false): Promise<string | null> {
-  const { resolveGoogleClientId } = await import('./oauthConfig')
   const id = (await resolveGoogleClientId(clientId)).trim()
   if (!id) return null
   const prepared = await createAuthorization({
@@ -150,7 +153,6 @@ export async function prefetchGoogleLogin(clientId?: string, includeGcs = false)
 
 export async function signInWithMicrosoft(clientId?: string, popup?: Window | null): Promise<CloudOAuthTokens> {
   const signInWindow = popup !== undefined ? popup : openSignInWindow()
-  const { resolveMicrosoftClientId } = await import('./oauthConfig')
   const id = (await resolveMicrosoftClientId(clientId)).trim()
   if (!id) {
     failInWindow(signInWindow, 'Microsoft sign-in needs an Azure app (client) ID once, then the Microsoft page can open.')
@@ -178,11 +180,8 @@ export async function signInWithDynamics(options: {
   tenant?: string
   popup?: Window | null
 }): Promise<CloudOAuthTokens> {
-  const { normalizeInstanceUrl } = await import('../saas/instanceUrl')
-  const { setSaasConnection } = await import('../saas/credentials')
   const instanceUrl = normalizeInstanceUrl(options.instanceUrl, 'dynamics')
   const signInWindow = options.popup !== undefined ? options.popup : openSignInWindow()
-  const { resolveMicrosoftClientId } = await import('./oauthConfig')
   const id = (await resolveMicrosoftClientId(options.clientId)).trim()
   if (!id) {
     failInWindow(signInWindow, 'Microsoft sign-in needs an Azure app (client) ID once, then the Microsoft page can open.')
@@ -214,7 +213,6 @@ export async function signInWithDynamics(options: {
 }
 
 export async function refreshDynamicsAccess(): Promise<string> {
-  const { getSaasConnection, setSaasConnection } = await import('../saas/credentials')
   const current = getSaasConnection('dynamics')
   if (!current) throw new CloudApiError('Dynamics 365 is not connected', 401)
   if (current.expiresAt && current.expiresAt > Date.now() + 30_000) return current.accessToken
@@ -242,7 +240,6 @@ export async function signInWithGoogle(
   popup?: Window | null,
 ): Promise<CloudOAuthTokens> {
   const signInWindow = popup !== undefined ? popup : openSignInWindow()
-  const { resolveGoogleClientId } = await import('./oauthConfig')
   const id = (await resolveGoogleClientId(clientId)).trim()
   if (!id) {
     failInWindow(signInWindow, 'Google sign-in needs a Google OAuth client ID once, then the Google page can open.')
@@ -582,8 +579,7 @@ async function exchangeCode(options: {
 }
 
 export async function refreshMicrosoftAccess(): Promise<string> {
-  const { getMicrosoftTokens: readMicrosoft } = await import('./cloudCredentials')
-  const current = readMicrosoft()
+  const current = getMicrosoftTokens()
   if (!current) throw new CloudApiError('Microsoft account is not connected', 401)
   if (current.expiresAt > Date.now() + 30_000) return current.accessToken
   if (!current.refreshToken) throw new CloudApiError('Microsoft session expired. Sign in again.', 401)
@@ -597,8 +593,7 @@ export async function refreshMicrosoftAccess(): Promise<string> {
 }
 
 export async function refreshGoogleAccess(): Promise<string> {
-  const { getGoogleTokens: readGoogle } = await import('./cloudCredentials')
-  const current = readGoogle()
+  const current = getGoogleTokens()
   if (!current) throw new CloudApiError('Google account is not connected', 401)
   if (current.expiresAt > Date.now() + 30_000) return current.accessToken
   if (!current.refreshToken) throw new CloudApiError('Google session expired. Sign in again.', 401)

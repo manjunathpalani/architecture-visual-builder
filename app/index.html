@@ -5,6 +5,15 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Architecture Visual Builder</title>
+    <script>
+      window.addEventListener('error', function (event) {
+        var msg = event.message || ''
+        if (msg.indexOf('ResizeObserver') !== -1 || msg.indexOf('undelivered notifications') !== -1) {
+          event.preventDefault()
+          event.stopImmediatePropagation()
+        }
+      }, true)
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -23,8 +23,11 @@ npm run open
 Then:
 
 1. **File → Open Folder** on the repo you want the agent to edit
-2. Command Palette → **Architecture Visual Builder: New Architecture Diagram**
-3. Or open a `*.avb.json` / `*.architecture.json` file
+2. Command Palette → **Architecture Visual Builder: New Architecture Diagram** (creates a `.avb.json` file)
+3. Or open a `*.avb.json` / `*.architecture.json` / `*architecture*.json` file
+4. Paste an AI key in **Settings → AI engines → Save & test**. The extension calls the provider directly (no `npm run dev` server)
+
+Do not open `package.json` or other non-diagram JSON in the builder. Those files are not architecture documents, and the extension will refuse to overwrite them.
 
 From this repo in VS Code you can also press **F5** (**Run Architecture Visual Builder (unsigned)**).
 
@@ -63,4 +66,4 @@ Turn `extensions.verifySignature` back to `true` afterward if you only needed th
 
 ## Features that still need `npm run dev`
 
-Cloud OAuth and some Git/Jira proxies. Canvas, templates, Feature & apply, and agent launch work in the extension.
+Cloud OAuth and some Git/Jira proxies. Canvas, templates, AI keys, File → Import JSON, Feature & apply, and agent launch work in the extension.

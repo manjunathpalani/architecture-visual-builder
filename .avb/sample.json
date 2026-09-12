@@ -1,0 +1,595 @@
+{
+  "metadata": {
+    "name": "Enhanced Web App to API to DB",
+    "description": "An enhanced architecture showing a web application interacting with a highly available and secure API layer, which connects to a resilient database, all under comprehensive monitoring.",
+    "version": "1.0.0",
+    "updatedAt": "2026-09-12T09:38:22.377Z"
+  },
+  "systems": [
+    {
+      "id": "web-app",
+      "type": "cloud",
+      "label": "Web Application",
+      "category": "Cloud",
+      "position": {
+        "x": -16,
+        "y": 112
+      },
+      "properties": {
+        "environment": "Cloud",
+        "description": "User-facing web application for interacting with the system, designed for high availability.",
+        "width": "180",
+        "height": "90"
+      }
+    },
+    {
+      "id": "load-balancer",
+      "type": "cloud",
+      "label": "Load Balancer",
+      "category": "Cloud",
+      "position": {
+        "x": 192,
+        "y": 96
+      },
+      "properties": {
+        "service": "Application Load Balancer",
+        "environment": "Cloud",
+        "description": "Distributes incoming web application traffic across multiple API Gateway instances to ensure high availability and mitigate single points of failure.",
+        "width": "180",
+        "height": "90"
+      }
+    },
+    {
+      "id": "api-gateway",
+      "type": "middleware",
+      "label": "API Gateway",
+      "category": "Middleware",
+      "position": {
+        "x": 736,
+        "y": 128
+      },
+      "properties": {
+        "environment": "Cloud",
+        "description": "Centralized API layer handling requests, routing them to the database, and enforcing robust authentication and authorization mechanisms to secure data access.",
+        "componentType": "api",
+        "width": "180",
+        "height": "90"
+      }
+    },
+    {
+      "id": "database",
+      "type": "database",
+      "label": "Database",
+      "category": "Database",
+      "position": {
+        "x": 1160,
+        "y": 40
+      },
+      "properties": {
+        "environment": "Cloud",
+        "description": "Stores all application data, accessed by the API layer, with a clear strategy for backup, recovery, and replication to ensure data resilience.",
+        "width": "180",
+        "height": "90"
+      }
+    },
+    {
+      "id": "monitoring-alerting-platform",
+      "type": "cloud",
+      "label": "Monitoring & Alerting Platform",
+      "category": "Software Engineering",
+      "position": {
+        "x": 304,
+        "y": -96
+      },
+      "properties": {
+        "environment": "Cloud",
+        "description": "Provides comprehensive monitoring, logging, and alerting for all components to proactively identify and address performance or availability issues.",
+        "width": "180",
+        "height": "90"
+      }
+    },
+    {
+      "id": "database-backup-replication",
+      "type": "database",
+      "label": "Database Backup & Replication",
+      "category": "Database",
+      "position": {
+        "x": 1216,
+        "y": -112
+      },
+      "properties": {
+        "environment": "Cloud",
+        "description": "Manages automated backups, recovery processes, and replication for the primary database to ensure data durability and disaster recovery capabilities.",
+        "width": "180",
+        "height": "90"
+      }
+    }
+  ],
+  "integrations": [
+    {
+      "id": "int-web-app-to-load-balancer",
+      "source": "web-app",
+      "target": "load-balancer",
+      "label": "API Calls",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "User requests from the web application are routed to the load balancer.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-load-balancer-to-api-gateway",
+      "source": "load-balancer",
+      "target": "api-gateway",
+      "label": "Routes Requests",
+      "direction": "outbound",
+      "protocol": "REST API",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "The load balancer distributes incoming requests to available API Gateway instances.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-api-gateway-to-database",
+      "source": "api-gateway",
+      "target": "database",
+      "label": "Data Access",
+      "direction": "bidirectional",
+      "protocol": "ODBC/JDBC",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "The API Gateway accesses and manipulates data in the database.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-monitoring-web-app",
+      "source": "monitoring-alerting-platform",
+      "target": "web-app",
+      "label": "Collects Metrics & Logs",
+      "direction": "inbound",
+      "protocol": "Custom",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "The monitoring platform collects performance metrics and logs from the web application.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-monitoring-load-balancer",
+      "source": "monitoring-alerting-platform",
+      "target": "load-balancer",
+      "label": "Collects Metrics & Logs",
+      "direction": "inbound",
+      "protocol": "Custom",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "The monitoring platform collects performance metrics and logs from the load balancer.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-monitoring-api-gateway",
+      "source": "monitoring-alerting-platform",
+      "target": "api-gateway",
+      "label": "Collects Metrics & Logs",
+      "direction": "inbound",
+      "protocol": "Custom",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "The monitoring platform collects performance metrics and logs from the API Gateway.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-monitoring-database",
+      "source": "monitoring-alerting-platform",
+      "target": "database",
+      "label": "Collects Metrics & Logs",
+      "direction": "inbound",
+      "protocol": "Custom",
+      "frequency": "real-time",
+      "dataFormat": "JSON",
+      "description": "The monitoring platform collects performance metrics and logs from the database.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    },
+    {
+      "id": "int-backup-database",
+      "source": "database-backup-replication",
+      "target": "database",
+      "label": "Backup & Replication",
+      "direction": "outbound",
+      "protocol": "Custom",
+      "frequency": "scheduled",
+      "dataFormat": "Custom",
+      "description": "The backup and replication system performs regular backups and manages data replication for the database.",
+      "changeStatus": "unchanged",
+      "routing": "bezier",
+      "waypoints": []
+    }
+  ],
+  "drawings": [],
+  "audit": [
+    {
+      "id": "audit-248c8a76",
+      "at": "2026-09-12T09:38:22.377Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Updated technical change design",
+      "details": []
+    },
+    {
+      "id": "audit-1f632da6",
+      "at": "2026-09-12T09:37:44.947Z",
+      "actor": "Local user",
+      "kind": "import",
+      "summary": "Replaced project from JSON",
+      "details": [
+        "Renamed project from “Architecture” to “Enhanced Web App to API to DB”",
+        "Updated project description",
+        "Added Web Application",
+        "Added Load Balancer",
+        "Added API Gateway",
+        "Added Database",
+        "Added Monitoring & Alerting Platform",
+        "Added Database Backup & Replication",
+        "Connected web-app → load-balancer (API Calls)",
+        "Connected load-balancer → api-gateway (Routes Requests)",
+        "Connected api-gateway → database (Data Access)",
+        "Connected monitoring-alerting-platform → web-app (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → load-balancer (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → api-gateway (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → database (Collects Metrics & Logs)",
+        "Connected database-backup-replication → database (Backup & Replication)"
+      ]
+    },
+    {
+      "id": "audit-042b3411",
+      "at": "2026-09-12T09:37:21.873Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Updated technical change design",
+      "details": []
+    },
+    {
+      "id": "audit-78daae66",
+      "at": "2026-09-12T09:34:48.794Z",
+      "actor": "Local user",
+      "kind": "import",
+      "summary": "Replaced project from JSON",
+      "details": [
+        "Renamed project from “Untitled-1” to “Enhanced Web App to API to DB”",
+        "Updated project description",
+        "Added Web Application",
+        "Added Load Balancer",
+        "Added API Gateway",
+        "Added Database",
+        "Added Monitoring & Alerting Platform",
+        "Added Database Backup & Replication",
+        "Connected web-app → load-balancer (API Calls)",
+        "Connected load-balancer → api-gateway (Routes Requests)",
+        "Connected api-gateway → database (Data Access)",
+        "Connected monitoring-alerting-platform → web-app (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → load-balancer (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → api-gateway (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → database (Collects Metrics & Logs)",
+        "Connected database-backup-replication → database (Backup & Replication)"
+      ]
+    },
+    {
+      "id": "audit-5fc8383f",
+      "at": "2026-09-10T13:07:09.701Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Monitoring & Alerting Platform",
+      "details": [
+        "Moved Monitoring & Alerting Platform"
+      ]
+    },
+    {
+      "id": "audit-a8b1b7d0",
+      "at": "2026-09-10T13:06:51.787Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Updated the diagram (2 changes)",
+      "details": [
+        "Resized Load Balancer",
+        "Cleared display on Load Balancer"
+      ]
+    },
+    {
+      "id": "audit-bec92510",
+      "at": "2026-09-10T13:06:50.653Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Updated the diagram (2 changes)",
+      "details": [
+        "Resized Load Balancer",
+        "Set display on Load Balancer"
+      ]
+    },
+    {
+      "id": "audit-f8b072dd",
+      "at": "2026-09-10T13:05:35.952Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Load Balancer",
+      "details": [
+        "Moved Load Balancer"
+      ]
+    },
+    {
+      "id": "audit-2c1e717e",
+      "at": "2026-09-10T13:05:32.728Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Web Application",
+      "details": [
+        "Moved Web Application"
+      ]
+    },
+    {
+      "id": "audit-ea13f098",
+      "at": "2026-09-10T13:00:16.593Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved API Gateway",
+      "details": [
+        "Moved API Gateway"
+      ]
+    },
+    {
+      "id": "audit-4cf2cd1a",
+      "at": "2026-09-10T13:00:15.087Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Load Balancer",
+      "details": [
+        "Moved Load Balancer"
+      ]
+    },
+    {
+      "id": "audit-7c700d65",
+      "at": "2026-09-10T13:00:08.030Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved API Gateway",
+      "details": [
+        "Moved API Gateway"
+      ]
+    },
+    {
+      "id": "audit-1c48ac9b",
+      "at": "2026-09-10T13:00:05.030Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Load Balancer",
+      "details": [
+        "Moved Load Balancer"
+      ]
+    },
+    {
+      "id": "audit-376e7100",
+      "at": "2026-09-10T12:59:59.139Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Web Application",
+      "details": [
+        "Moved Web Application"
+      ]
+    },
+    {
+      "id": "audit-2b0a54cc",
+      "at": "2026-09-10T12:59:57.432Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Monitoring & Alerting Platform",
+      "details": [
+        "Moved Monitoring & Alerting Platform"
+      ]
+    },
+    {
+      "id": "audit-ca811446",
+      "at": "2026-09-10T12:59:54.613Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Load Balancer",
+      "details": [
+        "Moved Load Balancer"
+      ]
+    },
+    {
+      "id": "audit-13d4ba8e",
+      "at": "2026-09-10T12:59:51.718Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved API Gateway",
+      "details": [
+        "Moved API Gateway"
+      ]
+    },
+    {
+      "id": "audit-8da390d8",
+      "at": "2026-09-10T12:59:49.291Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Database Backup & Replication",
+      "details": [
+        "Moved Database Backup & Replication"
+      ]
+    },
+    {
+      "id": "audit-f3e3ddd0",
+      "at": "2026-09-10T12:59:45.299Z",
+      "actor": "Local user",
+      "kind": "move",
+      "summary": "Moved Database Backup & Replication",
+      "details": [
+        "Moved Database Backup & Replication"
+      ]
+    },
+    {
+      "id": "audit-62cce771",
+      "at": "2026-09-10T12:59:37.227Z",
+      "actor": "Local user",
+      "kind": "ai",
+      "summary": "Replaced diagram with AI",
+      "details": [
+        "Renamed project from “Web App to API to DB” to “Enhanced Web App to API to DB”",
+        "Updated project description",
+        "Moved Web Application",
+        "Changed description on Web Application",
+        "Cleared git provider on Web Application",
+        "Cleared change status on Web Application",
+        "Added Load Balancer",
+        "Moved API Gateway",
+        "Changed description on API Gateway",
+        "Cleared change status on API Gateway",
+        "Moved Database",
+        "Changed description on Database",
+        "Cleared change status on Database",
+        "Added Monitoring & Alerting Platform",
+        "Added Database Backup & Replication",
+        "Connected web-app → load-balancer (API Calls)",
+        "Connected load-balancer → api-gateway (Routes Requests)",
+        "Connected api-gateway → database (Data Access)",
+        "Connected monitoring-alerting-platform → web-app (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → load-balancer (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → api-gateway (Collects Metrics & Logs)",
+        "Connected monitoring-alerting-platform → database (Collects Metrics & Logs)",
+        "Connected database-backup-replication → database (Backup & Replication)",
+        "Disconnected API Calls",
+        "Disconnected Data Access"
+      ]
+    },
+    {
+      "id": "audit-7fb95435",
+      "at": "2026-09-10T12:47:57.298Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Set change status on Database",
+      "details": [
+        "Set change status on Database"
+      ]
+    },
+    {
+      "id": "audit-c470fb2c",
+      "at": "2026-09-10T12:47:54.114Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Set change status on API Gateway",
+      "details": [
+        "Set change status on API Gateway"
+      ]
+    },
+    {
+      "id": "audit-b5d12932",
+      "at": "2026-09-10T12:47:48.539Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Set change status on Web Application",
+      "details": [
+        "Set change status on Web Application"
+      ]
+    },
+    {
+      "id": "audit-0460e288",
+      "at": "2026-09-10T12:46:43.432Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Changed git provider on Web Application",
+      "details": [
+        "Changed git provider on Web Application"
+      ]
+    },
+    {
+      "id": "audit-d06809df",
+      "at": "2026-09-10T12:46:40.582Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Set git provider on Web Application",
+      "details": [
+        "Set git provider on Web Application"
+      ]
+    },
+    {
+      "id": "audit-ed9bd2c4",
+      "at": "2026-09-10T12:45:38.957Z",
+      "actor": "Local user",
+      "kind": "ai",
+      "summary": "Replaced diagram with AI",
+      "details": [
+        "Renamed project from “Blank Scaffold Sample” to “Web App to API to DB”",
+        "Updated project description",
+        "Added Web Application",
+        "Added API Gateway",
+        "Added Database",
+        "Removed Source Zone",
+        "Removed Platform Zone",
+        "Removed Target Zone",
+        "Removed System A",
+        "Removed Integration Hub",
+        "Removed System B",
+        "Removed Sticky Note",
+        "Connected web-app → api-gateway (API Calls)",
+        "Connected api-gateway → database (Data Access)",
+        "Disconnected Inbound flow",
+        "Disconnected Outbound flow",
+        "Erased text"
+      ]
+    },
+    {
+      "id": "audit-32c03370",
+      "at": "2026-09-10T12:37:41.041Z",
+      "actor": "Local user",
+      "kind": "update",
+      "summary": "Set git provider on System A",
+      "details": [
+        "Set git provider on System A"
+      ]
+    },
+    {
+      "id": "audit-3514515a",
+      "at": "2026-09-10T12:37:17.520Z",
+      "actor": "Local user",
+      "kind": "add",
+      "summary": "Created from template “blank”",
+      "details": []
+    }
+  ],
+  "changeDesigns": [
+    {
+      "id": "design-b854ef79",
+      "title": "Untitled technical change",
+      "problem": "",
+      "proposedChange": "No new, updated, or retired components are marked on the canvas yet. Set Architecture state on systems and integrations, then sync.",
+      "acceptanceCriteria": "",
+      "status": "in-progress",
+      "createdAt": "2026-09-12T09:37:02.178Z",
+      "updatedAt": "2026-09-12T09:38:22.376Z",
+      "tasks": [
+        {
+          "id": "task-5e1e209c",
+          "systemId": "web-app",
+          "systemLabel": "Web Application",
+          "changeKind": "update",
+          "intent": "Apply the feature change in Web Application.",
+          "instruction": "{\n  \"title\": \"Clarification Required: Web Application Update\",\n  \"goal\": \"The goal is to update the Web Application component. However, the provided feature definition does not specify any concrete changes to implement within the Web Application itself, requiring further clarification.\",\n  \"scope\": \"This instruction is strictly scoped to the 'Web Application' component. No other services or components should be modified.\",\n  \"out_of_scope\": [\n    \"Load Balancer\",\n    \"Monitoring & Alerting Platform\",\n    \"API Layer\",\n    \"Database\"\n  ],\n  \"context\": \"The 'Web Application' is a user-facing web application designed for high availability. It communicates outbound with a 'Load Balancer' via REST API calls to access the API layer. It receives inbound metrics and logs from a 'Monitoring & Alerting Platform' via a custom integration. There is no specific repository linked to this component in the current architecture context.\",\n  \"concrete_implementation_steps\": [\n    \"**Clarification Required**: The provided 'Feature definition' states 'Untitled technical change. No new, updated, or retired components are marked on the canvas yet. Set Architecture state on systems and integrations, then sync.' This statement describes a state within an architecture diagramming tool rather than a concrete feature or technical change to be implemented in the 'Web Application' codebase.\",\n    \"Therefore, no specific coding steps can be provided at this time. The agent should request a clear and actionable feature definition that describes what functionality or modification is expected within the 'Web Application' component.\"\n  ],\n  \"files_or_areas_to_inspect\": [\n    \"Given the component name 'Web Application' and its role as a user-facing application, inspect typical web application project structures. Common areas would include:\",\n    \"  - `src/` or `app/` directories (for application code)\",\n    \"  - `public/` or `static/` (for static assets)\",\n    \"  - `components/` or `views/` (for UI elements)\",\n    \"  - `services/` or `api/` (for API interaction logic)\",\n    \"  - `config/` (for application configuration)\",\n    \"  - `package.json` or equivalent (for dependencies and scripts)\",\n    \"  - `tests/` (for existing test suites)\"\n  ],\n  \"acceptance_checks\": [\n    \"**Cannot be defined**: Without a concrete feature definition, no specific acceptance criteria can be inferred or defined. Acceptance checks would typically verify the successful implementation and functionality of the requested change within the Web Application.\"\n  ],\n  \"constraints\": [\n    \"Stay scoped to the 'Web Application' component and its assumed codebase path.\",\n    \"Match existing code style, testing patterns, and naming conventions.\",\n    \"Do not invent credentials, secrets, or unrelated systems.\",\n    \"If a repository or specific path is identified for the 'Web Application', work exclusively within that context.\",\n    \"Do not implement any changes that belong to other components (e.g., API changes, database schema modifications, monitoring platform configurations).\"\n  ]\n}",
+          "instructionGeneratedAt": "2026-09-12T09:37:21.872Z",
+          "status": "applying"
+        }
+      ]
+    }
+  ]
+}

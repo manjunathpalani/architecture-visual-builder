@@ -1,5 +1,8 @@
 import { getNodesBounds, getViewportForBounds, type Node } from '@xyflow/react'
-import { toPng, toSvg } from 'html-to-image'
+
+async function htmlToImage() {
+  return import('html-to-image')
+}
 
 export interface DiagramImage {
   dataUrl: string
@@ -50,6 +53,7 @@ export async function captureReactFlowPng(
   const view = getViewportForBounds(bounds, width, height, 0.4, 2, 0.1)
 
   try {
+    const { toPng } = await htmlToImage()
     const dataUrl = await toPng(viewportEl, {
       backgroundColor: EXPORT_BACKGROUND,
       width,
@@ -87,6 +91,7 @@ export async function captureCanvasImage(
   }
 
   try {
+    const { toPng, toSvg } = await htmlToImage()
     const dataUrl = format === 'svg' ? await toSvg(wrapper, options) : await toPng(wrapper, options)
     return { dataUrl, width, height }
   } catch {

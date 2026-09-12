@@ -1,5 +1,6 @@
 import type { ArchitectureDocument, Integration, SystemNode } from '../types'
 import { getProvider, loadAiSettings, type AiProviderId } from './aiProviders'
+import { aiFetch, aiUnreachableMessage } from './aiApi'
 
 export type AnalysisVerdict = 'strong' | 'balanced' | 'at-risk'
 
@@ -125,11 +126,10 @@ export async function analyzeArchitectureCapabilities(options: {
   })
   const context = summarizeArchitectureForAnalysis(options.document)
 
-  let response: Response
+  let response: Awaited<ReturnType<typeof aiFetch>>
   try {
-    response = await fetch('/api/ai/analyze', {
+    response = await aiFetch('analyze', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt,
         context,
@@ -140,7 +140,7 @@ export async function analyzeArchitectureCapabilities(options: {
       }),
     })
   } catch {
-    throw new Error('Could not reach the AI proxy. Run the app with npm run dev.')
+    throw new Error(aiUnreachableMessage())
   }
 
   const payload = (await response.json().catch(() => ({}))) as { text?: string; error?: string }

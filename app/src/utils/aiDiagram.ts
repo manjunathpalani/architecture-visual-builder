@@ -18,6 +18,7 @@ import {
   type AiStatus,
 } from './aiProviders'
 import type { AiImage } from './aiImage'
+import { aiFetch, aiUnreachableMessage } from './aiApi'
 
 export type AiPlacement = 'new-tab' | 'replace' | 'merge'
 export type { AiStatus } from './aiProviders'
@@ -49,7 +50,7 @@ export const AI_PROMPT_EXAMPLES = [
 
 export async function fetchAiStatus(): Promise<AiStatus> {
   try {
-    const response = await fetch('/api/ai/status')
+    const response = await aiFetch('status')
     if (!response.ok) {
       return { available: false, defaultProvider: 'spacexai', providers: [] }
     }
@@ -72,9 +73,8 @@ export async function verifyAiKey(options: {
   azureDeployment?: string
 }): Promise<{ ok: boolean; message: string; source?: 'browser' | 'server' }> {
   try {
-    const response = await fetch('/api/ai/verify', {
+    const response = await aiFetch('verify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         provider: options.provider,
         apiKey: options.apiKey,
@@ -98,7 +98,7 @@ export async function verifyAiKey(options: {
       source: payload.source,
     }
   } catch {
-    return { ok: false, message: 'Could not reach the AI proxy. Run the app with npm run dev.' }
+    return { ok: false, message: aiUnreachableMessage() }
   }
 }
 
@@ -112,11 +112,10 @@ export async function generateArchitectureFromPrompt(
   const provider = providerId ?? settings.selectedProvider
   const info = getProvider(provider)
 
-  let response: Response
+  let response: Awaited<ReturnType<typeof aiFetch>>
   try {
-    response = await fetch('/api/ai/diagram', {
+    response = await aiFetch('diagram', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt,
         context,
@@ -128,7 +127,7 @@ export async function generateArchitectureFromPrompt(
       }),
     })
   } catch {
-    throw new Error('Could not reach the AI proxy. Run the app with npm run dev.')
+    throw new Error(aiUnreachableMessage())
   }
 
   const payload = (await response.json().catch(() => ({}))) as { text?: string; error?: string }

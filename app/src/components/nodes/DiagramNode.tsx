@@ -34,7 +34,7 @@ export function DiagramNode({ id, data, selected }: NodeProps) {
         handleClassName="resize-handle"
       />
       <div
-        className={`diagram-node-wrapper resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
+        className={`diagram-node-wrapper resizable-node ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.isFlowPlayCurrent ? 'flow-play-current' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
         style={withNodeFontSize(nodeData.properties, { '--diagram-color': color } as React.CSSProperties)}
         title="Double-click to rename"
         onDoubleClick={(event) => {

@@ -4,6 +4,8 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Pause,
+  Play,
   SlidersHorizontal,
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
@@ -100,6 +102,12 @@ interface CanvasSidePanelProps {
   flowFocusId: string | null
   flowEdgeId: string | null
   flowTrace: FlowTrace | null
+  highlightedPathId?: string | null
+  onHighlightPath?: (pathId: string | null) => void
+  isPlayingFlow?: boolean
+  playHopIndex?: number
+  onPlayFlow?: () => void
+  onStopFlow?: () => void
   stateView: ArchitectureStateView
   onStateView: (view: ArchitectureStateView) => void
   properties?: ReactNode
@@ -121,6 +129,12 @@ export function CanvasSidePanel({
   flowFocusId,
   flowEdgeId,
   flowTrace,
+  highlightedPathId,
+  onHighlightPath,
+  isPlayingFlow,
+  playHopIndex = -1,
+  onPlayFlow,
+  onStopFlow,
   stateView,
   onStateView,
   properties,
@@ -304,12 +318,22 @@ export function CanvasSidePanel({
           </PanelSection>
 
           <PanelSection id="flow" expanded={expanded.has('flow')} onToggle={toggleSection}>
+            <p className="flow-scope-label">Line color</p>
             <div className="canvas-side-tools">
               {(['direction', 'protocol', 'custom', 'path'] as FlowColorBy[]).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   className={`flow-color-btn ${flowStyle.colorBy === mode ? 'active' : ''}`}
+                  title={
+                    mode === 'direction'
+                      ? 'Color lines by arrow direction'
+                      : mode === 'protocol'
+                        ? 'Color lines by protocol'
+                        : mode === 'custom'
+                          ? 'Use each line’s own color from Properties'
+                          : 'Color each traced path differently'
+                  }
                   onClick={() => onFlowStyle({ colorBy: mode })}
                 >
                   {mode === 'direction'
@@ -317,7 +341,7 @@ export function CanvasSidePanel({
                     : mode === 'protocol'
                       ? 'Protocol'
                       : mode === 'custom'
-                        ? 'Custom'
+                        ? 'Line color'
                         : 'Path'}
                 </button>
               ))}
@@ -331,7 +355,7 @@ export function CanvasSidePanel({
                   label: 'All touches',
                   title: 'Every system the selected component connects to, with flow and touch points',
                 },
-                { id: 'chain', label: 'Full chain', title: 'Follow the connected integration chain' },
+                { id: 'chain', label: 'End to end', title: 'Follow the connected integration chain from start to finish' },
               ] as Array<{ id: FlowScope; label: string; title: string }>).map((item) => (
                 <button
                   key={item.id}
@@ -345,20 +369,47 @@ export function CanvasSidePanel({
               ))}
             </div>
             {(flowFocusId || flowEdgeId) && (
+              <div className="canvas-side-tools flow-play-row">
+                <button
+                  type="button"
+                  className={`flow-color-btn ${isPlayingFlow ? 'active' : ''}`}
+                  disabled={!onPlayFlow}
+                  title="Animate the connected chain hop by hop"
+                  onClick={() => (isPlayingFlow ? onStopFlow?.() : onPlayFlow?.())}
+                >
+                  {isPlayingFlow ? <Pause size={12} /> : <Play size={12} />}
+                  {isPlayingFlow ? 'Stop flow' : 'Play flow'}
+                </button>
+              </div>
+            )}
+            {(flowFocusId || flowEdgeId) && (
               <div className="flow-legend">
                 <span className="flow-legend-title">
                   {flowStyle.scope === 'chain'
-                    ? 'Connected chain'
+                    ? 'End-to-end paths'
                     : flowStyle.scope === 'touches'
                       ? `All touches (${flowTrace?.directNodeIds.size ?? 0})`
                       : 'Direct connections'}
                 </span>
                 {flowStyle.scope !== 'direct' && flowTrace && flowTrace.paths.length > 0 ? (
                   flowTrace.paths.slice(0, 8).map((path) => (
-                    <span key={path.id} className="flow-path-chip" title={path.labels.join(' → ')}>
+                    <button
+                      key={path.id}
+                      type="button"
+                      className={`flow-path-chip ${highlightedPathId === path.id ? 'active' : ''} ${
+                        isPlayingFlow && highlightedPathId === path.id ? 'playing' : ''
+                      }`}
+                      title={`${path.labels.join(' → ')}${onHighlightPath ? ' · Click to isolate this flow' : ''}`}
+                      onClick={() =>
+                        onHighlightPath?.(highlightedPathId === path.id ? null : path.id)
+                      }
+                    >
                       <i style={{ background: path.color }} />
                       {path.labels.join(' → ')}
-                    </span>
+                      {isPlayingFlow && highlightedPathId === path.id && playHopIndex >= 0
+                        ? ` · ${playHopIndex + 1}/${path.edgeIds.length}`
+                        : ''}
+                    </button>
                   ))
                 ) : (
                   <>
@@ -373,7 +424,11 @@ export function CanvasSidePanel({
                 {flowStyle.scope !== 'direct' && flowTrace && flowTrace.paths.length > 8 && (
                   <span className="flow-legend-item dim">+{flowTrace.paths.length - 8} more</span>
                 )}
-                <span className="flow-legend-item dim">Other links dimmed</span>
+                <span className="flow-legend-item dim">
+                  {highlightedPathId
+                    ? 'Showing one path · click again to show all'
+                    : 'Shift-click a second box to trace start → end · other links dimmed'}
+                </span>
               </div>
             )}
           </PanelSection>

@@ -5,7 +5,7 @@ import {
   type EdgeProps,
 } from '@xyflow/react'
 import { useEffect, useRef } from 'react'
-import type { Position } from '../../types'
+import { parseLineStyle, parseLineWeight, type Position } from '../../types'
 import type { EdgeFocusRelation, IntegrationEdgeData } from '../../utils/jsonIO'
 import { DIRECTION_COLORS, resolveEdgeColor } from '../../utils/flowTrace'
 import { CHANGE_STATUS_COLORS, parseChangeStatus } from '../../utils/architectureState'
@@ -85,27 +85,39 @@ export function IntegrationEdge({
   const focusRelation: EdgeFocusRelation = edgeData?.focusRelation ?? 'idle'
   const isFocused = focusRelation === 'out' || focusRelation === 'in'
   const isDimmed = focusRelation === 'unrelated'
-  const isActive = isFocused || selected
+  const isPlayCurrent = Boolean(edgeData?.flowPlayCurrent)
+  const hopIndex = edgeData?.flowHopIndex
+  const isActive = isFocused || selected || isPlayCurrent
   const colorBy = edgeData?.colorBy ?? 'direction'
+  const lineStyle = parseLineStyle(edgeData?.lineStyle)
+  const lineWeight = parseLineWeight(edgeData?.lineWeight)
 
   const changeStatus = parseChangeStatus(edgeData?.changeStatus)
   const styledColor = resolveEdgeColor(edgeData, colorBy)
   const color =
-    isFocused && colorBy === 'direction'
-      ? FOCUS_COLORS[focusRelation]
-      : isFocused && edgeData?.flowPathColor
+    changeStatus !== 'unchanged'
+      ? CHANGE_STATUS_COLORS[changeStatus]
+      : isPlayCurrent && edgeData?.flowPathColor
         ? edgeData.flowPathColor
-        : changeStatus !== 'unchanged'
-          ? CHANGE_STATUS_COLORS[changeStatus]
+        : isFocused && colorBy === 'direction' && !edgeData?.color && !edgeData?.flowPathColor
+          ? FOCUS_COLORS[focusRelation]
           : styledColor || DIRECTION_COLORS[direction] || '#6366f1'
-  const dash = changeStatus === 'new' ? '7 4' : changeStatus === 'retired' ? '3 4' : undefined
+  const userDash = lineStyle === 'dashed' ? '8 5' : lineStyle === 'dotted' ? '2.5 4' : undefined
+  const dash = changeStatus === 'new' ? '7 4' : changeStatus === 'retired' ? '3 4' : userDash
+  const weight = lineWeight === 'thin' ? 1.75 : lineWeight === 'thick' ? 4.25 : 2.75
 
   const showEndArrow = direction === 'outbound' || direction === 'bidirectional'
   const showStartArrow = direction === 'inbound' || direction === 'bidirectional'
   const markerEnd = showEndArrow ? `url(#arrow-end-${id})` : undefined
   const markerStart = showStartArrow ? `url(#arrow-start-${id})` : undefined
 
-  const strokeWidth = isActive ? 3.5 : isDimmed ? 1.25 : 2.75
+  const strokeWidth = isPlayCurrent
+    ? weight + 1.8
+    : isActive
+      ? weight + 0.75
+      : isDimmed
+        ? Math.min(weight, 1.35)
+        : weight
   const opacity = isDimmed ? 0.16 : 0.92
 
   const isBidirectional = direction === 'bidirectional'
@@ -170,7 +182,7 @@ export function IntegrationEdge({
         >
           <path d="M 1 1 L 9 5 L 1 9 Z" fill={color} />
         </marker>
-        {isFocused && (
+        {(isFocused || isPlayCurrent) && (
           <filter id={`glow-${id}`} x="-40%" y="-40%" width="180%" height="180%">
             <feGaussianBlur stdDeviation="2.5" result="blur" />
             <feMerge>
@@ -192,10 +204,10 @@ export function IntegrationEdge({
           strokeWidth,
           opacity: changeStatus === 'retired' ? Math.min(opacity, 0.55) : opacity,
           strokeDasharray: dash,
-          filter: isFocused ? `url(#glow-${id})` : undefined,
+          filter: isFocused || isPlayCurrent ? `url(#glow-${id})` : undefined,
           transition: 'stroke 0.2s, stroke-width 0.2s, opacity 0.2s',
         }}
-        className={`integration-edge direction-${direction} focus-${focusRelation} change-${changeStatus} ${selected ? 'selected' : ''} ${isFocused ? 'flow-highlighted' : ''}`}
+        className={`integration-edge direction-${direction} focus-${focusRelation} change-${changeStatus} ${selected ? 'selected' : ''} ${isFocused ? 'flow-highlighted' : ''} ${isPlayCurrent ? 'flow-play-current' : ''}`}
       />
 
       {showForwardParticle && (
@@ -231,10 +243,10 @@ export function IntegrationEdge({
         </circle>
       )}
 
-      {isFocused && (
+      {(isFocused || isPlayCurrent) && (
         <circle r="3" fill={color} opacity="0.55" className="flow-particle-active">
           <animateMotion
-            dur="1.4s"
+            dur={isPlayCurrent ? '0.9s' : '1.4s'}
             begin="0.45s"
             repeatCount="indefinite"
             path={edgePath}
@@ -255,9 +267,14 @@ export function IntegrationEdge({
             opacity: isDimmed ? 0.25 : 1,
           }}
         >
-          {isFocused && (
+          {isPlayCurrent && (
+            <span className="edge-flow-badge flow-play" style={{ background: color }}>
+              FLOW {hopIndex ?? ''}
+            </span>
+          )}
+          {isFocused && !isPlayCurrent && (
             <span className={`edge-flow-badge flow-${focusRelation}`} style={{ background: color }}>
-              {FOCUS_LABEL[focusRelation]}
+              {hopIndex != null ? `HOP ${hopIndex}` : FOCUS_LABEL[focusRelation]}
             </span>
           )}
           <span className="edge-label-text">{label}</span>

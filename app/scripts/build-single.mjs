@@ -72,11 +72,18 @@ if (!existsSync(cssPath)) {
 const appJs = readFileSync(jsPath, 'utf8')
 const appCss = cssPath && existsSync(cssPath) ? readFileSync(cssPath, 'utf8') : ''
 
+// Vite's ESM helpers still mention import.meta even when everything is inlined.
+// Strip them before IIFE conversion so esbuild does not empty them at runtime.
+const iifeSource = appJs
+  .replaceAll('import.meta.resolve', 'undefined')
+  .replaceAll('import.meta.url', '(typeof document!=="undefined"&&document.baseURI||"/")')
+  .replaceAll('import.meta', '({url:typeof document!=="undefined"&&document.baseURI||"/"})')
+
 console.log('▸ Compress to IIFE for offline / single-file use…')
 const iifeOut = join(tmpDir, 'app.iife.js')
 await esbuild.build({
   stdin: {
-    contents: appJs,
+    contents: iifeSource,
     loader: 'js',
     resolveDir: tmpDir,
     sourcefile: 'app.js',
@@ -88,6 +95,7 @@ await esbuild.build({
   target: ['es2020'],
   minify: true,
   logLevel: 'warning',
+  logOverride: { 'empty-import-meta': 'silent' },
 })
 
 const iifeJs = readFileSync(iifeOut, 'utf8')
@@ -104,6 +112,15 @@ const html = `<!DOCTYPE html>
   <style>
 ${appCss}
   </style>
+  <script>
+    window.addEventListener('error', function (event) {
+      var msg = event.message || ''
+      if (msg.indexOf('ResizeObserver') !== -1 || msg.indexOf('undelivered notifications') !== -1) {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+      }
+    }, true)
+  </script>
 </head>
 <body>
   <div id="root"></div>

@@ -83,8 +83,9 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
     ),
   ]
 
-  if (diagram) {
-    children.push(diagramParagraph(diagram, brief.title))
+  const diagramBlock = diagram ? diagramParagraph(diagram, brief.title) : null
+  if (diagramBlock) {
+    children.push(diagramBlock)
     children.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
@@ -312,6 +313,11 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
   return Packer.toBlob(doc)
 }
 
+function sanitizeXml(value: unknown): string {
+  const text = String(value ?? '').trim() || '—'
+  return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+}
+
 function heading(text: string) {
   return new Paragraph({
     heading: HeadingLevel.HEADING_1,
@@ -321,7 +327,7 @@ function heading(text: string) {
 
 function body(text: string) {
   return new Paragraph({
-    children: [new TextRun({ text, font: 'Arial', size: 22, color: SLATE })],
+    children: [new TextRun({ text: sanitizeXml(text), font: 'Arial', size: 22, color: SLATE })],
     spacing: { after: 160 },
   })
 }
@@ -329,7 +335,7 @@ function body(text: string) {
 function bullet(text: string) {
   return new Paragraph({
     numbering: { reference: 'bullets', level: 0 },
-    children: [new TextRun({ text, font: 'Arial', size: 22, color: SLATE })],
+    children: [new TextRun({ text: sanitizeXml(text), font: 'Arial', size: 22, color: SLATE })],
     spacing: { after: 80 },
   })
 }
@@ -364,7 +370,8 @@ function integrationSection(integration: IntegrationBrief): (Paragraph | Table)[
   ]
 }
 
-function diagramParagraph(diagram: DiagramImage, title: string) {
+function diagramParagraph(diagram: DiagramImage, title: string): Paragraph | null {
+  if (!diagram.dataUrl?.includes('base64,')) return null
   const maxW = 620
   const maxH = 420
   const ratio = diagram.width / diagram.height || 16 / 9
@@ -375,25 +382,32 @@ function diagramParagraph(diagram: DiagramImage, title: string) {
     width = Math.round(maxH * ratio)
   }
 
-  return new Paragraph({
-    alignment: AlignmentType.CENTER,
-    children: [
-      new ImageRun({
-        type: 'png',
-        data: dataUrlToBytes(diagram.dataUrl),
-        transformation: { width, height },
-        altText: {
-          name: `${title} diagram`,
-          description: `Architecture diagram for ${title}`,
-          title: `${title} diagram`,
-        },
-      }),
-    ],
-    spacing: { before: 120, after: 80 },
-  })
+  try {
+    const bytes = dataUrlToBytes(diagram.dataUrl)
+    const data = Uint8Array.from(bytes)
+    return new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [
+        new ImageRun({
+          type: 'png',
+          data,
+          transformation: { width, height },
+          altText: {
+            name: `${title} diagram`,
+            description: `Architecture diagram for ${title}`,
+            title: `${title} diagram`,
+          },
+        }),
+      ],
+      spacing: { before: 120, after: 80 },
+    })
+  } catch {
+    return null
+  }
 }
 
 function makeTable(headers: string[], columnWidths: number[], rows: string[][]) {
+  const safeRows = rows.length > 0 ? rows : [headers.map(() => '—')]
   const headerRow = new TableRow({
     tableHeader: true,
     children: headers.map(
@@ -412,7 +426,7 @@ function makeTable(headers: string[], columnWidths: number[], rows: string[][]) 
     ),
   })
 
-  const dataRows = rows.map(
+  const dataRows = safeRows.map(
     (row, rowIndex) =>
       new TableRow({
         children: row.map(
@@ -424,7 +438,7 @@ function makeTable(headers: string[], columnWidths: number[], rows: string[][]) 
               margins: { top: 50, bottom: 50, left: 80, right: 80 },
               children: [
                 new Paragraph({
-                  children: [new TextRun({ text: text || '—', size: 16, font: 'Arial', color: SLATE })],
+                  children: [new TextRun({ text: sanitizeXml(text), size: 16, font: 'Arial', color: SLATE })],
                 }),
               ],
             }),
