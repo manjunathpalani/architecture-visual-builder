@@ -109,6 +109,7 @@ function mergeIntegrationsPreservingNested(
     return {
       ...item,
       sequenceFlow: item.sequenceFlow ?? old.sequenceFlow,
+      notes: item.notes ?? old.notes,
       subDiagram: Object.prototype.hasOwnProperty.call(item, 'subDiagram')
         ? item.subDiagram
         : old.subDiagram,

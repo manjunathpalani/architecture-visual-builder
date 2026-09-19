@@ -49,6 +49,8 @@ import { CodeLinkSection } from './CodeLinkSection'
 import { WorkItemLinkSection } from './WorkItemLinkSection'
 import { InterfaceSpecSection } from './InterfaceSpecSection'
 import { SequenceFlowSection } from './SequenceFlowSection'
+import { RichNotesEditor } from './RichNotesEditor'
+import { hasRichNotes } from '../utils/richNotes'
 import { isApiIntegration, isApiNode } from '../utils/apiComponent'
 import { hasCodeLink } from '../utils/codeLink'
 import { tasksForSystem } from '../utils/changeDesign'
@@ -511,18 +513,16 @@ export function PropertiesPanel({
             onToggle={toggle}
           >
           {isNote && (
-            <label>
-              Note Content
-              <textarea
-                rows={5}
-                value={data.properties.content ?? data.label}
-                onChange={(e) =>
-                  onUpdateNode(selectedNode.id, {
-                    properties: { ...data.properties, content: e.target.value },
-                  })
-                }
-              />
-            </label>
+            <RichNotesEditor
+              label="Note content"
+              value={data.properties.content ?? data.label}
+              placeholder="Write this sticky note with headings, lists, and emphasis…"
+              onChange={(content) =>
+                onUpdateNode(selectedNode.id, {
+                  properties: { ...data.properties, content },
+                })
+              }
+            />
           )}
 
           {!isDiagram && !isNote && !isGroup && !isShape && (
@@ -588,7 +588,7 @@ export function PropertiesPanel({
           <label>
             Description
             <textarea
-              rows={3}
+              rows={2}
               value={data.properties.description ?? ''}
               onChange={(e) =>
                 onUpdateNode(selectedNode.id, {
@@ -598,6 +598,26 @@ export function PropertiesPanel({
             />
           </label>
           </PropertyGroup>
+
+          {!isNote && (
+          <PropertyGroup
+            id="notes"
+            title="Notes"
+            summary={hasRichNotes(data.properties.notes) ? 'Has notes' : undefined}
+            expanded={isOpen('notes')}
+            onToggle={toggle}
+          >
+            <RichNotesEditor
+              value={data.properties.notes ?? ''}
+              placeholder="Design notes, constraints, open questions, and links…"
+              onChange={(notes) =>
+                onUpdateNode(selectedNode.id, {
+                  properties: { ...data.properties, notes },
+                })
+              }
+            />
+          </PropertyGroup>
+          )}
 
           {!isNote && (
           <PropertyGroup
@@ -997,6 +1017,21 @@ export function PropertiesPanel({
           </PropertyGroup>
           {!bulkEdges && (
           <PropertyGroup
+            id="notes"
+            title="Notes"
+            summary={hasRichNotes(data.notes) ? 'Has notes' : undefined}
+            expanded={isOpen('notes')}
+            onToggle={toggle}
+          >
+            <RichNotesEditor
+              value={data.notes ?? ''}
+              placeholder="Notes for this integration: contracts, SLAs, exceptions, links…"
+              onChange={(notes) => patchEdge({ notes })}
+            />
+          </PropertyGroup>
+          )}
+          {!bulkEdges && (
+          <PropertyGroup
             id="sequence"
             title="Sequence flow"
             summary={
@@ -1081,7 +1116,7 @@ export function PropertiesPanel({
           <label>
             Description
             <textarea
-              rows={3}
+              rows={2}
               value={data.description}
               onChange={(e) => patchEdge({ description: e.target.value })}
             />
@@ -1190,6 +1225,7 @@ function liveEdgeData(
     lineAnimation: parseLineAnimation(integration.lineAnimation),
     sequenceFlow: integration.sequenceFlow,
     subDiagram: integration.subDiagram,
+    notes: integration.notes,
     changeStatus: integration.changeStatus,
     routing: parseEdgeRouting(integration.routing),
     waypoints: integration.waypoints,

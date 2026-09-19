@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { InterfaceSpecModal } from '../InterfaceSpecModal'
 import { ChangeStatusBadge } from '../ChangeStatusBadge'
 import { ChangeDesignBadge } from '../ChangeDesignBadge'
+import { NotesBadge } from '../NotesBadge'
 import { parseChangeStatus } from '../../utils/architectureState'
 import { NodeConnectors } from './NodeConnectors'
 import { parseNodeFontSize, withNodeFontSize } from '../../utils/nodeFontSize'
@@ -114,6 +115,7 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
         <div className="node-footer">
           <span className="node-category">{nodeData.category}</span>
           <div className="node-footer-badges">
+            <NotesBadge notes={nodeData.properties.notes} compact title={nodeData.label} />
             <WorkItemBadge fields={nodeData.properties} compact />
             <CodeLinkBadge properties={nodeData.properties} compact />
             {nodeData.hasChangeTask && <ChangeDesignBadge compact />}

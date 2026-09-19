@@ -223,6 +223,8 @@ export interface Integration {
   sequenceFlow?: SequenceFlowStep[]
   /** Nested sequence diagram owned by this integration. */
   subDiagram?: SubDiagram
+  /** Markdown notes for this integration. */
+  notes?: string
   jiraIssueKey?: string
   jiraIssueSummary?: string
   jiraIssueUrl?: string

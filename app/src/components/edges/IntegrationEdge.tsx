@@ -15,6 +15,7 @@ import { buildEdgePath, nearestWaypointInsertIndex, pointAlongPath } from '../..
 import { useEdgeEdit } from './edgeEdit'
 import { useDiagramLock } from '../nodes/diagramLockContext'
 import { useDrillIn, useSequenceHop } from '../nodes/drillInContext'
+import { NotesBadge } from '../NotesBadge'
 
 const FOCUS_COLORS: Record<'out' | 'in', string> = {
   out: '#10b981',
@@ -392,6 +393,7 @@ export function IntegrationEdge({
           {edgeData?.protocol && !isDimmed && (
             <span className="edge-protocol">{edgeData.protocol}</span>
           )}
+          {!isDimmed && <NotesBadge notes={edgeData?.notes} compact title={label} />}
           {hasSequence && (
             <div className="edge-sequence">
               {sequenceSteps.length > 0 && (

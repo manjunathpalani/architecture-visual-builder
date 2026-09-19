@@ -1,13 +1,14 @@
-import type { ArchitectureTemplateId } from '../data/templates'
+import { isUserTemplatePickId } from '../utils/userTemplates'
 
 interface TemplateSamplePreviewProps {
-  id: ArchitectureTemplateId
+  id: string
 }
 
 /** Compact visual sketch of each template’s sample design layout */
 export function TemplateSamplePreview({ id }: TemplateSamplePreviewProps) {
   return (
     <div className="template-sample-preview" aria-hidden="true">
+      {isUserTemplatePickId(id) && <SavedPreview />}
       {id === 'blank' && <BlankPreview />}
       {id === 'enterprise' && <EnterprisePreview />}
       {id === 'business-context' && <IndustryPreview accent="#7c3aed" labels={['Outcome', 'Value stream', 'Apps']} />}
@@ -38,7 +39,23 @@ export function TemplateSamplePreview({ id }: TemplateSamplePreviewProps) {
       )}
       {id === 'ai-multi-agents' && <AgentsPreview />}
       {id === 'ai-azure' && <InfraPreview accent="#0078d4" labels={['Edge', 'AI', 'Knowledge']} />}
+      {id === 'bpm-straight-through' && <ProcessPreview labels={['Capture', 'Validate', 'Rules']} />}
+      {id === 'bpm-approval' && <ProcessPreview labels={['Request', 'Rules', 'Approve']} />}
+      {id === 'bpm-onboarding' && <IndustryPreview accent="#2563eb" labels={['Customer', 'Ops', 'Systems']} />}
+      {id === 'bpm-case' && <ProcessPreview labels={['Classify', 'Validate', 'Route']} />}
     </div>
+  )
+}
+
+function SavedPreview() {
+  return (
+    <svg viewBox="0 0 200 88" className="template-preview-svg">
+      <rect x="8" y="16" width="52" height="56" rx="8" fill="#eef2ff" stroke="#6366f1" strokeWidth="1.4" />
+      <rect x="74" y="10" width="52" height="68" rx="8" fill="#ecfdf5" stroke="#10b981" strokeWidth="1.4" />
+      <rect x="140" y="20" width="52" height="48" rx="8" fill="#fff7ed" stroke="#f59e0b" strokeWidth="1.4" />
+      <path d="M60 44 H74" stroke="#64748b" strokeWidth="1.6" />
+      <path d="M126 44 H140" stroke="#64748b" strokeWidth="1.6" />
+    </svg>
   )
 }
 
@@ -80,6 +97,21 @@ function AgentsPreview() {
       <path d="M88 44 H100" stroke="#94a3b8" strokeWidth="1.2" />
       <path d="M140 24 H152" stroke="#94a3b8" strokeWidth="1.2" />
       <path d="M120 56 H152" stroke="#94a3b8" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+function ProcessPreview({ labels }: { labels: string[] }) {
+  return (
+    <svg viewBox="0 0 200 88" className="template-preview-svg">
+      <rect x="8" y="28" width="48" height="32" rx="16" fill="#eef2ff" stroke="#6366f1" strokeWidth="1.3" />
+      <text x="32" y="48" textAnchor="middle" fontSize="7" fill="#4338ca">{labels[0]}</text>
+      <path d="M56 44 H72" stroke="#64748b" strokeWidth="1.3" />
+      <rect x="72" y="28" width="48" height="32" rx="6" fill="#dbeafe" stroke="#2563eb" strokeWidth="1.3" />
+      <text x="96" y="48" textAnchor="middle" fontSize="7" fill="#1d4ed8">{labels[1]}</text>
+      <path d="M120 44 H136" stroke="#64748b" strokeWidth="1.3" />
+      <polygon points="160,26 178,44 160,62 142,44" fill="#ecfdf5" stroke="#059669" strokeWidth="1.3" />
+      <text x="160" y="47" textAnchor="middle" fontSize="6" fill="#047857">{labels[2]}</text>
     </svg>
   )
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState, type KeyboardEvent } from 'react'
 import {
+  Bookmark,
   Bot,
   Brain,
   Building2,
@@ -31,11 +32,12 @@ import {
   type ArchitectureTemplateCategory,
   type ArchitectureTemplateId,
 } from '../data/templates'
+import { isUserTemplatePickId } from '../utils/userTemplates'
 import { TemplateSamplePreview } from './TemplateSamplePreview'
 
 interface TemplatePickerProps {
   mode?: 'project' | 'sub-tab'
-  onSelect: (id: ArchitectureTemplateId) => void
+  onSelect: (id: string) => void
   onClose: () => void
 }
 
@@ -54,6 +56,10 @@ const TEMPLATE_ICONS: Record<ArchitectureTemplateId, LucideIcon> = {
   'int-saga': Workflow,
   'int-bff': LayoutTemplate,
   'int-scatter-gather': Split,
+  'bpm-straight-through': Workflow,
+  'bpm-approval': Shield,
+  'bpm-onboarding': GitBranch,
+  'bpm-case': Split,
   banking: Landmark,
   healthcare: HeartPulse,
   insurance: Shield,
@@ -76,17 +82,18 @@ function TemplateCard({
   cta,
 }: {
   template: ArchitectureTemplate
-  onSelect: (id: ArchitectureTemplateId) => void
+  onSelect: (id: string) => void
   cta: string
 }) {
-  const Icon = TEMPLATE_ICONS[template.id]
-  const stats = getTemplateSampleStats(template.id)
+  const saved = isUserTemplatePickId(String(template.id))
+  const Icon = saved ? Bookmark : TEMPLATE_ICONS[template.id as ArchitectureTemplateId] ?? LayoutTemplate
+  const stats = getTemplateSampleStats(String(template.id))
 
   return (
     <button
       type="button"
-      className={`template-card template-card-${template.id}`}
-      onClick={() => onSelect(template.id)}
+      className={`template-card template-card-${saved ? 'saved' : template.id}`}
+      onClick={() => onSelect(String(template.id))}
     >
       <div className="template-card-top">
         <div className="template-card-icon">
@@ -94,11 +101,11 @@ function TemplateCard({
         </div>
         <div className="template-card-meta">
           <span className="template-card-category">{template.category}</span>
-          <span className="template-sample-badge">Sample design</span>
+          <span className="template-sample-badge">{saved ? 'Saved template' : 'Sample design'}</span>
         </div>
       </div>
 
-      <TemplateSamplePreview id={template.id} />
+      <TemplateSamplePreview id={String(template.id)} />
 
       <div className="template-card-body">
         <h3>{template.name}</h3>
@@ -132,18 +139,23 @@ const CATEGORY_TABS: Array<{
   hint: string
   icon: LucideIcon
 }> = [
+  { id: 'Saved', label: 'Saved', hint: 'Diagrams you saved or imported as templates', icon: Bookmark },
   { id: 'General', label: 'General', hint: 'Blank scaffold to start from', icon: Square },
   { id: 'Architecture Style', label: 'Styles', hint: 'EA, C4, context, and functions', icon: Layers },
   { id: 'Industry', label: 'Industry', hint: 'Banking, health, insurance, telco', icon: Building2 },
   { id: 'Infrastructure', label: 'Infrastructure', hint: 'AWS, Azure, Kubernetes, hybrid', icon: Cloud },
   { id: 'AI', label: 'AI', hint: 'RAG, MLOps, agents, Azure AI', icon: Sparkles },
   { id: 'Integration', label: 'Integration', hint: 'SaaS to on-prem landscapes', icon: Link2 },
+  { id: 'BPM', label: 'BPM', hint: 'Process steps, validation, and business rules', icon: Workflow },
 ]
 
 export function TemplatePicker({ mode = 'project', onSelect, onClose }: TemplatePickerProps) {
   const groups = useMemo(() => getTemplatesByCategory(), [])
   const isSubTab = mode === 'sub-tab'
-  const [activeCategory, setActiveCategory] = useState<ArchitectureTemplateCategory>('Architecture Style')
+  const hasSaved = (groups.find((group) => group.category === 'Saved')?.templates.length ?? 0) > 0
+  const [activeCategory, setActiveCategory] = useState<ArchitectureTemplateCategory>(
+    hasSaved ? 'Saved' : 'Architecture Style',
+  )
 
   const tabs = useMemo(
     () =>

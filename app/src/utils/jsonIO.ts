@@ -65,6 +65,7 @@ export interface IntegrationEdgeData extends Record<string, unknown> {
   canvasLineAnimation?: boolean
   sequenceFlow?: SequenceFlowStep[]
   subDiagram?: SubDiagram
+  notes?: string
   routing?: EdgeRouting
   waypoints?: Position[]
   /** Runtime: relative flow vs selected box — out leaves selection, in enters it */
@@ -167,6 +168,7 @@ export function documentToFlow(document: ArchitectureDocument): {
       waypoints: integration.waypoints ?? [],
       sequenceFlow: integration.sequenceFlow,
       subDiagram: integration.subDiagram,
+      notes: integration.notes,
       jiraIssueKey: integration.jiraIssueKey,
       jiraIssueSummary: integration.jiraIssueSummary,
       jiraIssueUrl: integration.jiraIssueUrl,
@@ -225,6 +227,7 @@ export function flowToDocument(
     waypoints: edge.data?.waypoints,
     sequenceFlow: edge.data?.sequenceFlow,
     subDiagram: edge.data?.subDiagram,
+    notes: edge.data?.notes,
     jiraIssueKey: edge.data?.jiraIssueKey,
     jiraIssueSummary: edge.data?.jiraIssueSummary,
     jiraIssueUrl: edge.data?.jiraIssueUrl,

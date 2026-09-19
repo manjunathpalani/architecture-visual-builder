@@ -458,6 +458,7 @@ function reconcileFlowEdges(
       oldData.lineWeight === incomingData.lineWeight &&
       oldData.lineAnimation === incomingData.lineAnimation &&
       (oldData.sequenceFlow?.length ?? 0) === (incomingData.sequenceFlow?.length ?? 0) &&
+      oldData.notes === incomingData.notes &&
       oldData.changeStatus === incomingData.changeStatus &&
       oldData.routing === incomingData.routing &&
       (oldData.waypoints?.length ?? 0) === (incomingData.waypoints?.length ?? 0) &&

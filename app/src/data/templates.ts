@@ -28,7 +28,20 @@ import {
   createScatterGather,
   createStranglerFig,
 } from './integrationTemplates'
+import {
+  createApprovalProcess,
+  createCaseProcess,
+  createOnboardingProcess,
+  createStraightThroughProcess,
+} from './bpmTemplates'
 import sampleArchitecture from './sample-architecture.json'
+import {
+  createDocumentFromUserTemplate,
+  isUserTemplatePickId,
+  loadUserTemplates,
+  parseUserTemplatePickId,
+  userTemplatePickId,
+} from '../utils/userTemplates'
 
 export type ArchitectureTemplateId =
   | 'blank'
@@ -59,14 +72,20 @@ export type ArchitectureTemplateId =
   | 'int-saga'
   | 'int-bff'
   | 'int-scatter-gather'
+  | 'bpm-straight-through'
+  | 'bpm-approval'
+  | 'bpm-onboarding'
+  | 'bpm-case'
 
 export type ArchitectureTemplateCategory =
+  | 'Saved'
   | 'General'
   | 'Architecture Style'
   | 'Industry'
   | 'Infrastructure'
   | 'AI'
   | 'Integration'
+  | 'BPM'
 
 export interface TemplateSampleStats {
   systems: number
@@ -75,7 +94,7 @@ export interface TemplateSampleStats {
 }
 
 export interface ArchitectureTemplate {
-  id: ArchitectureTemplateId
+  id: ArchitectureTemplateId | string
   name: string
   category: ArchitectureTemplateCategory
   description: string
@@ -97,8 +116,8 @@ function getSampleStats(doc: ArchitectureDocument): TemplateSampleStats {
   }
 }
 
-export function getTemplateSampleStats(id: ArchitectureTemplateId): TemplateSampleStats {
-  return getSampleStats(createFromTemplate(id))
+export function getTemplateSampleStats(id: string): TemplateSampleStats {
+  return getSampleStats(createFromPickId(id))
 }
 
 function stamp(doc: ArchitectureDocument): ArchitectureDocument {
@@ -2589,24 +2608,109 @@ export const ARCHITECTURE_TEMPLATES: ArchitectureTemplate[] = [
     sampleLabel: 'Parallel quote aggregation sample',
     create: createScatterGather,
   },
+  {
+    id: 'bpm-straight-through',
+    name: 'Straight-through process',
+    category: 'BPM',
+    description:
+      'Capture a request, validate it, apply business rules, then execute or park exceptions. Nested diagrams show validation and rule steps.',
+    highlights: [
+      'Intake → validate → rules → decide',
+      'Schema, required fields, duplicates',
+      'Eligibility, policy, decision table',
+    ],
+    icon: '▹',
+    hasSampleDesign: true,
+    sampleLabel: 'STP with validation, rules, and exception path',
+    create: createStraightThroughProcess,
+  },
+  {
+    id: 'bpm-approval',
+    name: 'Approval with rules',
+    category: 'BPM',
+    description:
+      'Validate a request, run policy rules, auto-approve in-limit work, and send over-limit cases to a human gate.',
+    highlights: [
+      'Validation then BRMS policy',
+      'Auto-approve vs human review',
+      'Approver task inbox',
+    ],
+    icon: '☑',
+    hasSampleDesign: true,
+    sampleLabel: 'Request–validate–rules–approve sample',
+    create: createApprovalProcess,
+  },
+  {
+    id: 'bpm-onboarding',
+    name: 'Onboarding swimlanes',
+    category: 'BPM',
+    description:
+      'Customer, operations, and systems lanes for onboarding: capture, validate, KYC/policy rules, then provision or refer.',
+    highlights: [
+      'Customer · Operations · Systems',
+      'KYC validation and policy rules',
+      'Straight-through vs refer decision',
+    ],
+    icon: '≡',
+    hasSampleDesign: true,
+    sampleLabel: 'Three-lane onboarding process sample',
+    create: createOnboardingProcess,
+  },
+  {
+    id: 'bpm-case',
+    name: 'Case process with rules',
+    category: 'BPM',
+    description:
+      'Log a case, classify it with rules, validate for that type, then route to standard resolve, specialist, or reject.',
+    highlights: [
+      'Classification decision table',
+      'Type-specific validation',
+      'Standard vs specialist path',
+    ],
+    icon: '▣',
+    hasSampleDesign: true,
+    sampleLabel: 'Classify → validate → route sample',
+    create: createCaseProcess,
+  },
 ]
 
 export const TEMPLATE_CATEGORY_ORDER: ArchitectureTemplateCategory[] = [
+  'Saved',
   'General',
   'Architecture Style',
   'Industry',
   'Infrastructure',
   'AI',
   'Integration',
+  'BPM',
 ]
 
 export function getTemplatesByCategory(): {
   category: ArchitectureTemplateCategory
   templates: ArchitectureTemplate[]
 }[] {
+  const saved = loadUserTemplates().map((item) => ({
+    id: userTemplatePickId(item.id),
+    name: item.name,
+    category: 'Saved' as const,
+    description: item.description || 'Saved from a diagram in this browser so you can start from it later.',
+    highlights: [
+      `${item.document.systems.length} component${item.document.systems.length === 1 ? '' : 's'}`,
+      `${item.document.integrations.length} integration${item.document.integrations.length === 1 ? '' : 's'}`,
+      item.document.systems.some((system) => Boolean(system.subDiagram))
+        ? 'Includes inner diagrams'
+        : 'Reusable starting point',
+    ],
+    icon: 'bookmark',
+    hasSampleDesign: true as const,
+    sampleLabel: 'Your saved diagram',
+    create: () => createDocumentFromUserTemplate(item.id),
+  }))
+
   return TEMPLATE_CATEGORY_ORDER.map((category) => ({
     category,
-    templates: ARCHITECTURE_TEMPLATES.filter((t) => t.category === category),
+    templates:
+      category === 'Saved' ? saved : ARCHITECTURE_TEMPLATES.filter((t) => t.category === category),
   })).filter((g) => g.templates.length > 0)
 }
 
@@ -2618,4 +2722,11 @@ export function getTemplate(id: ArchitectureTemplateId): ArchitectureTemplate {
 
 export function createFromTemplate(id: ArchitectureTemplateId): ArchitectureDocument {
   return getTemplate(id).create()
+}
+
+export function createFromPickId(id: string): ArchitectureDocument {
+  const userId = parseUserTemplatePickId(id)
+  if (userId) return createDocumentFromUserTemplate(userId)
+  if (isUserTemplatePickId(id)) throw new Error('Saved template not found')
+  return createFromTemplate(id as ArchitectureTemplateId)
 }

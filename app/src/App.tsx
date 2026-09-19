@@ -17,6 +17,7 @@ import {
   FolderGit2,
   History,
   LayoutGrid,
+  LayoutTemplate,
   Plus,
   Presentation,
   Settings,
@@ -100,10 +101,8 @@ import {
   type IntegrationEdgeData,
   type IntegrationNodeData,
 } from './utils/jsonIO'
-import {
-  createFromTemplate,
-  type ArchitectureTemplateId,
-} from './data/templates'
+import { createFromPickId, createFromTemplate } from './data/templates'
+import { addUserTemplate } from './utils/userTemplates'
 import { mergeGeneratedIntoView, type AiPlacement } from './utils/aiDiagram'
 import { applySaasImport, type SaasImportPayload } from './utils/saas/mapToDiagram'
 import { applyAudit, type AuditExtras } from './utils/auditLog'
@@ -504,11 +503,25 @@ function App() {
     clearSelection()
   }
 
-  const handleSelectTemplate = (id: ArchitectureTemplateId) => {
-    const stamped = createFromTemplate(id)
+  const handleSaveAsTemplate = () => {
+    const defaultName = document.metadata.name?.trim() || 'Untitled template'
+    const name = window.prompt('Save this diagram as a template named:', defaultName)
+    if (name == null) return
+    const trimmed = name.trim()
+    if (!trimmed) return
+    const saved = addUserTemplate({
+      name: trimmed,
+      description: document.metadata.description,
+      document,
+    })
+    setGitMessage(`Saved “${saved.name}” as a template. Use File → New tab → Saved to start from it.`)
+  }
+
+  const handleSelectTemplate = (id: string) => {
+    const stamped = createFromPickId(id)
     const doc = applyAudit(stamped, stamped, {
       kind: 'add',
-      summary: `Created from template “${id}”`,
+      summary: `Created from template “${stamped.metadata.name}”`,
     })
     if (templatePickerMode === 'sub-tab') {
       updateActiveTab((tab) => {
@@ -930,6 +943,7 @@ function App() {
         lineAnimation: 'lineAnimation' in data ? data.lineAnimation : i.lineAnimation,
         sequenceFlow: 'sequenceFlow' in data ? data.sequenceFlow : i.sequenceFlow,
         subDiagram: 'subDiagram' in data ? data.subDiagram : i.subDiagram,
+        notes: 'notes' in data ? data.notes : i.notes,
         changeStatus: 'changeStatus' in data ? data.changeStatus : i.changeStatus,
         routing: data.routing ?? i.routing,
         waypoints: 'waypoints' in data ? data.waypoints : i.waypoints,
@@ -1243,6 +1257,13 @@ function App() {
         items: [
           { id: 'new-tab', label: 'New tab', hint: 'Start from a template', icon: Plus, onSelect: handleNewTab },
           {
+            id: 'save-template',
+            label: 'Save as template…',
+            hint: 'Reuse this diagram from New tab later',
+            icon: LayoutTemplate,
+            onSelect: handleSaveAsTemplate,
+          },
+          {
             id: 'import',
             label: 'Import JSON…',
             hint: 'Open a project file',
@@ -1498,6 +1519,16 @@ function App() {
         label: 'Settings',
         items: [
           {
+            id: 'settings-templates',
+            label: 'Templates',
+            hint: 'Import and manage saved diagrams',
+            icon: LayoutTemplate,
+            onSelect: () => {
+              setSettingsTab('templates')
+              openDialog('settings')
+            },
+          },
+          {
             id: 'settings-ai',
             label: 'AI engines',
             hint: savedAiKeys > 0 ? `${savedAiKeys} key${savedAiKeys === 1 ? '' : 's'} saved` : 'Keys and default model',
@@ -1547,6 +1578,7 @@ function App() {
       handleExportImage,
       handleImportFromDevice,
       handleNewTab,
+      handleSaveAsTemplate,
       handleOpenJsonEditor,
       isFullscreen,
       linkedCount,

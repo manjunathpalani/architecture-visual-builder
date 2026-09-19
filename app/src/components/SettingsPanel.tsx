@@ -1,11 +1,13 @@
-import { Cloud, GitBranch, KeyRound, Settings, Ticket, X } from 'lucide-react'
+import { Cloud, GitBranch, KeyRound, LayoutTemplate, Settings, Ticket, X } from 'lucide-react'
 import { AiEnginesPanel } from './AiEnginesPanel'
 import { GitIntegrationsPanel, type IntegrationSection } from './GitIntegrationsPanel'
+import { TemplatesSettingsPanel } from './TemplatesSettingsPanel'
 import { countSavedKeys } from '../utils/aiProviders'
 import { isAzureDevOpsConnected, isGitHubConnected, isJiraConnected } from '../utils/gitCredentials'
 import { isCloudConnected } from '../utils/cloud/cloudCredentials'
+import { loadUserTemplates } from '../utils/userTemplates'
 
-export type SettingsTab = 'ai' | 'git' | 'jira' | 'cloud'
+export type SettingsTab = 'ai' | 'git' | 'jira' | 'cloud' | 'templates'
 
 interface SettingsPanelProps {
   tab: SettingsTab
@@ -15,6 +17,7 @@ interface SettingsPanelProps {
 
 const TABS: Array<{ id: SettingsTab; label: string; hint: string; icon: typeof Settings }> = [
   { id: 'ai', label: 'AI engines', hint: 'Keys and default model', icon: KeyRound },
+  { id: 'templates', label: 'Templates', hint: 'Save, import, and reuse diagrams', icon: LayoutTemplate },
   { id: 'git', label: 'Git', hint: 'GitHub and Azure DevOps', icon: GitBranch },
   { id: 'jira', label: 'Jira', hint: 'Work item linking', icon: Ticket },
   { id: 'cloud', label: 'Cloud storage', hint: 'OneDrive, SharePoint, Google, iCloud', icon: Cloud },
@@ -28,6 +31,10 @@ export function SettingsPanel({ tab, onTabChange, onClose }: SettingsPanelProps)
 
   const badge = (id: SettingsTab): string | null => {
     if (id === 'ai') return keyCount > 0 ? String(keyCount) : null
+    if (id === 'templates') {
+      const count = loadUserTemplates().length
+      return count > 0 ? String(count) : null
+    }
     if (id === 'git') return gitOn ? 'On' : null
     if (id === 'jira') return jiraOn ? 'On' : null
     if (id === 'cloud') return cloudOn ? 'On' : null
@@ -43,7 +50,7 @@ export function SettingsPanel({ tab, onTabChange, onClose }: SettingsPanelProps)
               <Settings size={18} />
               Settings
             </h2>
-            <p>AI keys, Git, Jira, and cloud storage — kept in this browser.</p>
+            <p>AI keys, templates, Git, Jira, and cloud storage — kept in this browser.</p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close settings">
             <X size={18} />
@@ -75,7 +82,8 @@ export function SettingsPanel({ tab, onTabChange, onClose }: SettingsPanelProps)
 
           <div className="settings-body">
             {tab === 'ai' && <AiEnginesPanel embedded />}
-            {tab !== 'ai' && (
+            {tab === 'templates' && <TemplatesSettingsPanel />}
+            {tab !== 'ai' && tab !== 'templates' && (
               <GitIntegrationsPanel embedded section={tab as IntegrationSection} />
             )}
           </div>
