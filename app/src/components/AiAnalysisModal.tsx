@@ -4,6 +4,7 @@ import type { ArchitectureDocument } from '../types'
 import {
   AI_PROVIDERS,
   getProvider,
+  isEngineReady,
   loadAiSettings,
   type AiProviderId,
 } from '../utils/aiProviders'
@@ -44,8 +45,7 @@ export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }:
   }, [])
 
   const info = getProvider(provider)
-  const serverReady = Boolean(status?.providers.find((item) => item.id === provider)?.configured)
-  const hasKey = serverReady || Boolean(initial.keys[provider]?.trim())
+  const hasKey = isEngineReady(provider, status)
   const systemCount = document.systems.length
   const canRun = hasKey && systemCount > 0 && !loading
 
@@ -132,7 +132,11 @@ export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }:
             </button>
           </div>
           {!hasKey && (
-            <p className="git-status err">Add an AI key first — SpaceXAI is the default engine.</p>
+            <p className="git-status err">
+              {provider === 'copilot'
+                ? 'Sign in to GitHub Copilot in VS Code, or paste a GitHub token in Settings → AI engines.'
+                : 'Add an AI key first — SpaceXAI is the default engine. Copilot works in VS Code without a key.'}
+            </p>
           )}
           {systemCount === 0 && (
             <p className="git-status err">Add systems to the canvas before analyzing.</p>

@@ -4,6 +4,7 @@ import type { ArchitectureDocument } from '../types'
 import {
   AI_PROVIDERS,
   getProvider,
+  isEngineReady,
   loadAiSettings,
   saveAiSettings,
   type AiKeyTest,
@@ -89,7 +90,7 @@ export function AiDiagramModal({
 
   const info = getProvider(provider)
   const serverReady = Boolean(status?.providers.find((p) => p.id === provider)?.configured)
-  const hasKey = serverReady || Boolean(userKey.trim())
+  const hasKey = isEngineReady(provider, status) || Boolean(userKey.trim())
   const hasAzureBits =
     provider !== 'azure-openai' ||
     (Boolean(azureEndpoint.trim()) && Boolean(azureDeployment.trim())) ||

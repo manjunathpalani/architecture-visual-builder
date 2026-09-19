@@ -1,8 +1,20 @@
+import type { CSSProperties } from 'react'
 import type { DrawingElement, DrawingPoint } from '../types/diagram'
+import { NODE_FONT_FAMILIES } from './nodeFontSize'
 
 export const DRAWING_COLORS = [
   '#6366f1', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#334155', '#0078d4',
 ]
+
+export function drawingFontCss(element: Pick<DrawingElement, 'fontFamily' | 'fontWeight' | 'fontStyle' | 'fontSize'>): CSSProperties {
+  const family = NODE_FONT_FAMILIES.find((font) => font.id === (element.fontFamily ?? 'default'))
+  return {
+    fontFamily: family?.css ?? 'inherit',
+    fontWeight: element.fontWeight ?? '600',
+    fontStyle: element.fontStyle === 'italic' ? 'italic' : 'normal',
+    fontSize: element.fontSize ?? 14,
+  }
+}
 
 export function rectFromPoints(a: DrawingPoint, b: DrawingPoint) {
   const x = Math.min(a.x, b.x)
@@ -103,6 +115,18 @@ export function rectToCornerPoints(rect: DrawnRect): [DrawingPoint, DrawingPoint
   ]
 }
 
+/** Even-odd frame path so rectangle interiors let clicks through to nodes and edges. */
+export function rectFramePath(rect: DrawnRect, thickness: number): string {
+  const { x, y, width, height } = rect
+  const t = Math.max(1, Math.min(thickness, width / 2, height / 2))
+  const innerW = width - t * 2
+  const innerH = height - t * 2
+  if (innerW <= 1 || innerH <= 1) {
+    return `M ${x} ${y} h ${width} v ${height} h ${-width} z`
+  }
+  return `M ${x} ${y} h ${width} v ${height} h ${-width} z M ${x + t} ${y + t} v ${innerH} h ${innerW} v ${-innerH} z`
+}
+
 export function hitTestRectHandle(
   rect: DrawnRect,
   point: DrawingPoint,
@@ -144,9 +168,17 @@ export function hitTestDrawing(
 ): boolean {
   switch (element.type) {
     case 'path': {
-      return element.points.some(
-        (p) => Math.hypot(p.x - point.x, p.y - point.y) <= tolerance,
-      )
+      if (element.points.length < 2) {
+        return element.points.some(
+          (p) => Math.hypot(p.x - point.x, p.y - point.y) <= tolerance,
+        )
+      }
+      for (let i = 1; i < element.points.length; i++) {
+        if (distanceToSegment(point, element.points[i - 1], element.points[i]) <= tolerance) {
+          return true
+        }
+      }
+      return false
     }
     case 'line':
     case 'arrow': {
@@ -155,7 +187,8 @@ export function hitTestDrawing(
       const dist = distanceToSegment(point, a, b)
       return dist <= tolerance
     }
-    case 'rectangle': {
+    case 'rectangle':
+    case 'image': {
       if (element.points.length < 2) return false
       const { x, y, width, height } = rectFromPoints(
         element.points[0],
@@ -185,10 +218,33 @@ export function hitTestDrawing(
   }
 }
 
+/** True when the point is on the rectangle border, not the interior. */
+export function hitTestRectBorder(
+  element: DrawingElement,
+  point: DrawingPoint,
+  thickness = 12,
+): boolean {
+  if (element.type !== 'rectangle' && element.type !== 'image') return false
+  if (element.points.length < 2) return false
+  const { x, y, width, height } = rectFromPoints(element.points[0], element.points[1])
+  const t = Math.max(1, thickness)
+  const insideOuter =
+    point.x >= x - t &&
+    point.x <= x + width + t &&
+    point.y >= y - t &&
+    point.y <= y + height + t
+  const insideInner =
+    point.x >= x + t &&
+    point.x <= x + width - t &&
+    point.y >= y + t &&
+    point.y <= y + height - t
+  return insideOuter && !insideInner
+}
+
 export function drawingBounds(
   element: DrawingElement,
 ): { x: number; y: number; width: number; height: number } | null {
-  if (element.type === 'rectangle' && element.points.length >= 2) {
+  if ((element.type === 'rectangle' || element.type === 'image') && element.points.length >= 2) {
     return rectFromPoints(element.points[0], element.points[1])
   }
   if (element.points.length === 0) return null

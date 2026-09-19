@@ -176,3 +176,46 @@ export function segmentMidpoints(points: Point[]): Point[] {
   }
   return mids
 }
+
+function distanceToSegment(p: Point, a: Point, b: Point) {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const lenSq = dx * dx + dy * dy
+  if (lenSq === 0) return Math.hypot(p.x - a.x, p.y - a.y)
+  let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
+
+/** Index in `waypoints` at which to insert a bend for the closest segment. */
+export function nearestWaypointInsertIndex(points: Point[], p: Point): number {
+  if (points.length < 2) return 0
+  let best = 0
+  let bestDist = Infinity
+  for (let i = 0; i < points.length - 1; i++) {
+    const dist = distanceToSegment(p, points[i], points[i + 1])
+    if (dist < bestDist) {
+      bestDist = dist
+      best = i
+    }
+  }
+  return best
+}
+
+let measurePath: SVGPathElement | null = null
+
+function getMeasurePath() {
+  if (typeof document === 'undefined') return null
+  if (!measurePath) measurePath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  return measurePath
+}
+
+export function pointAlongPath(d: string, t: number): Point | null {
+  const el = getMeasurePath()
+  if (!el || !d) return null
+  el.setAttribute('d', d)
+  const len = el.getTotalLength()
+  if (!Number.isFinite(len) || len <= 0) return null
+  const p = el.getPointAtLength(Math.max(0, Math.min(1, t)) * len)
+  return { x: p.x, y: p.y }
+}

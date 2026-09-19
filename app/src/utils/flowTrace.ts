@@ -46,6 +46,8 @@ export type FlowScope = 'direct' | 'touches' | 'chain'
 export interface FlowStyle {
   colorBy: FlowColorBy
   scope: FlowScope
+  /** Moving dots on integration lines. Default on. */
+  lineAnimation: boolean
   /** @deprecated derived from scope === 'chain' */
   endToEnd: boolean
 }
@@ -55,7 +57,7 @@ const SCOPES: FlowScope[] = ['direct', 'touches', 'chain']
 export function loadFlowStyle(): FlowStyle {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return { colorBy: 'direction', scope: 'direct', endToEnd: false }
+    if (!raw) return { colorBy: 'direction', scope: 'direct', lineAnimation: true, endToEnd: false }
     const parsed = JSON.parse(raw) as Partial<FlowStyle> & { endToEnd?: boolean }
     const colorBy = parsed.colorBy
     const scope: FlowScope = SCOPES.includes(parsed.scope as FlowScope)
@@ -69,10 +71,11 @@ export function loadFlowStyle(): FlowStyle {
           ? colorBy
           : 'direction',
       scope,
+      lineAnimation: parsed.lineAnimation !== false,
       endToEnd: scope === 'chain',
     }
   } catch {
-    return { colorBy: 'direction', scope: 'direct', endToEnd: false }
+    return { colorBy: 'direction', scope: 'direct', lineAnimation: true, endToEnd: false }
   }
 }
 

@@ -19,6 +19,15 @@ import {
   createMultiProviderAgents,
   createSdlcAiAgents,
 } from './aiTemplates'
+import {
+  createApiLedConnectivity,
+  createBackendForFrontend,
+  createEventDrivenBackbone,
+  createHubAndSpoke,
+  createSagaOrchestration,
+  createScatterGather,
+  createStranglerFig,
+} from './integrationTemplates'
 import sampleArchitecture from './sample-architecture.json'
 
 export type ArchitectureTemplateId =
@@ -43,6 +52,13 @@ export type ArchitectureTemplateId =
   | 'ai-sdlc'
   | 'ai-multi-agents'
   | 'ai-azure'
+  | 'int-api-led'
+  | 'int-hub-spoke'
+  | 'int-event-driven'
+  | 'int-strangler'
+  | 'int-saga'
+  | 'int-bff'
+  | 'int-scatter-gather'
 
 export type ArchitectureTemplateCategory =
   | 'General'
@@ -2460,6 +2476,118 @@ export const ARCHITECTURE_TEMPLATES: ArchitectureTemplate[] = [
     hasSampleDesign: true,
     sampleLabel: 'SaaS–cloud–on-prem integration sample',
     create: () => cloneDoc(sampleArchitecture as ArchitectureDocument),
+  },
+  {
+    id: 'int-api-led',
+    name: 'API-led connectivity',
+    category: 'Integration',
+    description:
+      'Experience, process, and system APIs so channels reuse composed capabilities instead of calling systems of record.',
+    highlights: [
+      'Experience · Process · System layers',
+      'No channel-to-SoR shortcuts',
+      'Reusable process APIs',
+    ],
+    icon: '▤',
+    hasSampleDesign: true,
+    sampleLabel: 'Three-layer API connectivity sample',
+    create: createApiLedConnectivity,
+  },
+  {
+    id: 'int-hub-spoke',
+    name: 'Hub-and-spoke (ESB)',
+    category: 'Integration',
+    description:
+      'Spokes talk only to a central hub that owns the canonical model, routing, transformation, and VETRO operations.',
+    highlights: [
+      'No point-to-point between spokes',
+      'Canonical master data',
+      'VETRO drill-in on the hub',
+    ],
+    icon: '✸',
+    hasSampleDesign: true,
+    sampleLabel: 'ESB / iPaaS hub sample',
+    create: createHubAndSpoke,
+  },
+  {
+    id: 'int-event-driven',
+    name: 'Event-driven backbone',
+    category: 'Integration',
+    description:
+      'Producers publish facts to a durable event bus; consumers subscribe independently with replay and no temporal coupling.',
+    highlights: [
+      'Kafka / Event Hubs backbone',
+      'Stream processor',
+      'Fan-out to inventory, notify, WMS, lake',
+    ],
+    icon: '⌁',
+    hasSampleDesign: true,
+    sampleLabel: 'Pub/sub event backbone sample',
+    create: createEventDrivenBackbone,
+  },
+  {
+    id: 'int-strangler',
+    name: 'Strangler fig + ACL',
+    category: 'Integration',
+    description:
+      'Extract capabilities behind a router while an anti-corruption layer isolates remaining legacy contracts.',
+    highlights: [
+      'Strangler router / gateway',
+      'Anti-corruption layer',
+      'New services vs shrinking monolith',
+    ],
+    icon: '🌿',
+    hasSampleDesign: true,
+    sampleLabel: 'Legacy modernization sample',
+    create: createStranglerFig,
+  },
+  {
+    id: 'int-saga',
+    name: 'Saga orchestration',
+    category: 'Integration',
+    description:
+      'Long-running business transaction across services: an orchestrator sequences commands and compensating actions.',
+    highlights: [
+      'Order → pay → reserve → ship',
+      'Saga state store',
+      'Compensation on failure (no 2PC)',
+    ],
+    icon: '↻',
+    hasSampleDesign: true,
+    sampleLabel: 'Distributed saga sample',
+    create: createSagaOrchestration,
+  },
+  {
+    id: 'int-bff',
+    name: 'Backend for frontend',
+    category: 'Integration',
+    description:
+      'Each channel has a dedicated BFF that aggregates shared backend services into channel-shaped contracts.',
+    highlights: [
+      'Web · Mobile · Partner BFFs',
+      'Shared catalog / order / profile',
+      'Channel-specific payloads',
+    ],
+    icon: '▣',
+    hasSampleDesign: true,
+    sampleLabel: 'Per-channel BFF sample',
+    create: createBackendForFrontend,
+  },
+  {
+    id: 'int-scatter-gather',
+    name: 'Scatter-gather',
+    category: 'Integration',
+    description:
+      'Fan a request to many providers in parallel, then correlate, time out, and aggregate into one response.',
+    highlights: [
+      'Recipient-list scatter',
+      'REST · SOAP · file providers',
+      'Aggregator with timeout',
+    ],
+    icon: '⋔',
+    hasSampleDesign: true,
+    sampleLabel: 'Parallel quote aggregation sample',
+    create: createScatterGather,
   },
 ]
 

@@ -12,6 +12,7 @@ import {
   FileImage,
   FileJson,
   FileText,
+  NotebookPen,
   ImageDown,
   FolderGit2,
   History,
@@ -39,6 +40,7 @@ import { SwaggerInjectorModal } from './components/SwaggerInjectorModal'
 import { SaasMetadataModal } from './components/SaasMetadataModal'
 import { AiDiagramModal } from './components/AiDiagramModal'
 import { AiAnalysisModal } from './components/AiAnalysisModal'
+import { AiSadModal } from './components/AiSadModal'
 import { ChangeDesignModal } from './components/ChangeDesignModal'
 import { AuditTrailPanel } from './components/AuditTrailPanel'
 import { DialogLayer } from './components/DialogLayer'
@@ -62,7 +64,8 @@ import { ProjectTabs } from './components/ProjectTabs'
 import { SubTabBar } from './components/SubTabBar'
 import { TemplatePicker } from './components/TemplatePicker'
 import { getLinkedSystems } from './utils/codeLink'
-import type { ArchitectureDocument, PaletteItem, SystemNode, TechnicalChangeDesign } from './types'
+import type { ArchitectureDocument, PaletteItem, SequenceFlowStep, SystemNode, TechnicalChangeDesign } from './types'
+import type { DiagramPath } from './types/diagram'
 import { createProjectTab, type ProjectTab } from './types/project'
 import {
   addSystemsInView,
@@ -72,6 +75,7 @@ import {
   removeSubTab,
   deleteSystemInView,
   ensureSubDiagram,
+  ensureIntegrationSubDiagram,
   getDiagramView,
   listSubTabs,
   renameDrillPath,
@@ -79,6 +83,7 @@ import {
   updateIntegrationInView,
   updateSystemInView,
 } from './utils/diagramNavigation'
+import { locateSequenceStep, seedIntegrationSequence } from './utils/sequenceFlow'
 import { ComponentPalette } from './components/ComponentPalette'
 import { DiagramBreadcrumb } from './components/DiagramBreadcrumb'
 import { DiagramPageTitle } from './components/DiagramPageTitle'
@@ -105,8 +110,17 @@ import { applyAudit, type AuditExtras } from './utils/auditLog'
 import {
   architectureFileSlug,
   downloadDataUrl,
+  type DiagramImage,
   type DiagramImageFormat,
 } from './utils/captureDiagram'
+import {
+  applySadDraft,
+  type SadDraft,
+} from './utils/aiSad'
+import {
+  diagramPathKey,
+  listDiagramCaptureTargets,
+} from './utils/architectureNarrative'
 import { countSavedKeys } from './utils/aiProviders'
 import {
   exitElementFullscreen,
@@ -161,6 +175,7 @@ function App() {
   const [activeTabId, setActiveTabId] = useState(INITIAL_WORKSPACE.activeTabId)
   const [selectedNode, setSelectedNode] = useState<Node<IntegrationNodeData> | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge<IntegrationEdgeData> | null>(null)
+  const [selectedEdges, setSelectedEdges] = useState<Edge<IntegrationEdgeData>[]>([])
   const [dialogStack, setDialogStack] = useState<DialogId[]>(() => loadDialogStack())
   const [jsonError, setJsonError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -179,6 +194,7 @@ function App() {
   const [designFocusSystemId, setDesignFocusSystemId] = useState<string | undefined>(undefined)
 
   const [exporting, setExporting] = useState(false)
+  const [capturingSad, setCapturingSad] = useState(false)
   const [menusHidden, setMenusHidden] = useState(loadMenusHidden)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const canvasRef = useRef<IntegrationCanvasHandle>(null)
@@ -200,6 +216,8 @@ function App() {
 
   tabsRef.current = tabs
   activeTabIdRef.current = activeTabId
+  const drillPathRef = useRef<DiagramPath>([])
+  const workspaceViewRef = useRef<'diagram' | 'feature'>('diagram')
   const dialogStackRef = useRef(dialogStack)
   dialogStackRef.current = dialogStack
 
@@ -237,6 +255,8 @@ function App() {
   const document = activeTab.document
   const drillPath = activeTab.drillPath
   const workspaceView = activeTab.workspaceView === 'feature' ? 'feature' : 'diagram'
+  drillPathRef.current = drillPath
+  workspaceViewRef.current = workspaceView
   const diagramView = getDiagramView(document, drillPath)
   const linkedCount = getLinkedSystems(document.systems).length
   const workItemCount = collectLinkedWorkItems(document).length
@@ -316,20 +336,58 @@ function App() {
   )
 
   const handleDrillInto = useCallback(
-    (systemId: string, label: string) => {
-      updateActiveTab((tab) => ({
-        ...tab,
-        document: applyAudit(
-          tab.document,
-          ensureSubDiagram(tab.document, tab.drillPath, systemId),
-          { kind: 'navigate', summary: `Opened sub-diagram for ${label}` },
-        ),
-        drillPath: [...tab.drillPath, { systemId, label }],
-        canvasKey: tab.canvasKey + 1,
-      }))
+    (id: string, label: string, kind: 'system' | 'integration' = 'system') => {
+      updateActiveTab((tab) => {
+        let nextDoc = tab.document
+        if (kind === 'integration') {
+          nextDoc = ensureIntegrationSubDiagram(tab.document, tab.drillPath, id)
+          const integration = getDiagramView(nextDoc, tab.drillPath).integrations.find((item) => item.id === id)
+          if (integration) nextDoc = seedIntegrationSequence(nextDoc, tab.drillPath, integration)
+        } else {
+          nextDoc = ensureSubDiagram(tab.document, tab.drillPath, id)
+        }
+        return {
+          ...tab,
+          document: applyAudit(tab.document, nextDoc, {
+            kind: 'navigate',
+            summary:
+              kind === 'integration'
+                ? `Opened sequence diagram for ${label}`
+                : `Opened sub-diagram for ${label}`,
+          }),
+          drillPath: [...tab.drillPath, { systemId: id, label, kind }],
+          canvasKey: tab.canvasKey + 1,
+        }
+      })
       clearSelection()
     },
     [updateActiveTab],
+  )
+
+  const handleOpenSequenceHop = useCallback(
+    (edgeId: string, step: SequenceFlowStep) => {
+      const view = getDiagramView(document, drillPath)
+      const integration = view.integrations.find((item) => item.id === edgeId)
+      if (!integration) {
+        setFocusNodeId(step.systemId)
+        return
+      }
+      const location = locateSequenceStep(document, drillPath, integration, step)
+      if (!location || location.catalogId === 'current') {
+        setFocusNodeId(step.systemId)
+        return
+      }
+      if (location.catalogId === 'nested') {
+        handleDrillInto(integration.id, integration.label, 'integration')
+        setFocusNodeId(step.systemId)
+        return
+      }
+      if (location.parentId && location.parentLabel) {
+        handleDrillInto(location.parentId, location.parentLabel, 'system')
+        setFocusNodeId(step.systemId)
+      }
+    },
+    [document, drillPath, handleDrillInto],
   )
 
   const handleNavigateDiagram = useCallback(
@@ -343,6 +401,7 @@ function App() {
   const clearSelection = () => {
     setSelectedNode(null)
     setSelectedEdge(null)
+    setSelectedEdges([])
     setFocusNodeId(null)
   }
 
@@ -690,26 +749,94 @@ function App() {
     }
   }
 
-  const runOfficeExport = async (kind: 'pptx' | 'docx') => {
+  const waitForCanvas = async (timeoutMs = 2500) => {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      if (canvasRef.current) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 180))
+        return canvasRef.current
+      }
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 40))
+    }
+    return canvasRef.current
+  }
+
+  const navigateForCapture = async (path: DiagramPath) => {
+    const samePath = diagramPathKey(path) === diagramPathKey(drillPathRef.current)
+    const onDiagram = workspaceViewRef.current === 'diagram'
+    if (samePath && onDiagram && canvasRef.current) {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80))
+      return
+    }
+    if (!onDiagram) setWorkspaceView('diagram')
+    if (!samePath) setDrillPath(path)
+    await waitForCanvas()
+  }
+
+  const captureAllDiagramViews = async (): Promise<{
+    overview?: DiagramImage | null
+    views: Array<{ key: string; title: string; image: DiagramImage }>
+  }> => {
+    const originalPath = drillPathRef.current
+    const originalView = workspaceViewRef.current
+    const targets = listDiagramCaptureTargets(document)
+    const views: Array<{ key: string; title: string; image: DiagramImage }> = []
+    setCapturingSad(true)
+    appRef.current?.classList.add('sad-capturing')
+    setGitMessage('Capturing diagrams for SAD…')
+    try {
+      for (const target of targets) {
+        await navigateForCapture(target.path)
+        const image = await canvasRef.current?.capturePng()
+        if (image) views.push({ key: target.key, title: target.title, image })
+      }
+    } finally {
+      appRef.current?.classList.remove('sad-capturing')
+      setCapturingSad(false)
+      if (originalView === 'feature') setWorkspaceView('feature')
+      if (diagramPathKey(originalPath) !== diagramPathKey(drillPathRef.current)) {
+        setDrillPath(originalPath)
+      } else if (originalView === 'diagram') {
+        await waitForCanvas(800)
+      }
+    }
+    return {
+      overview: views.find((view) => view.key === 'root')?.image ?? views[0]?.image ?? null,
+      views,
+    }
+  }
+
+  const runOfficeExport = async (kind: 'pptx' | 'docx', sadDraft?: SadDraft | null) => {
     setExporting(true)
     setGitMessage(kind === 'pptx' ? 'Building PowerPoint briefing…' : 'Building Word SAD…')
     try {
       const { buildArchitectureBrief } = await import('./utils/architectureNarrative')
-      const brief = buildArchitectureBrief(document)
-      let image = null
-      try {
-        image = (await canvasRef.current?.capturePng()) ?? null
-      } catch {
-        image = null
-      }
+      const brief = applySadDraft(buildArchitectureBrief(document), sadDraft)
       if (kind === 'pptx') {
+        let image = null
+        try {
+          if (workspaceViewRef.current !== 'diagram') {
+            setWorkspaceView('diagram')
+            await waitForCanvas()
+          }
+          image = (await canvasRef.current?.capturePng()) ?? null
+        } catch {
+          image = null
+        }
         const { exportArchitecturePptx } = await import('./utils/exportPptx')
         await exportArchitecturePptx(brief, image)
         setGitMessage('Downloaded PowerPoint briefing')
       } else {
+        closeDialog('aiSad')
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 80))
+        const diagrams = await captureAllDiagramViews()
         const { exportArchitectureDocx } = await import('./utils/exportDocx')
-        await exportArchitectureDocx(brief, image)
-        setGitMessage('Downloaded Word Solution Architecture Document')
+        await exportArchitectureDocx(brief, diagrams)
+        setGitMessage(
+          sadDraft
+            ? 'Downloaded AI-written Word Solution Architecture Document'
+            : 'Downloaded Word Solution Architecture Document',
+        )
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Export failed'
@@ -800,6 +927,9 @@ function App() {
         color: 'color' in data ? data.color : i.color,
         lineStyle: 'lineStyle' in data ? data.lineStyle : i.lineStyle,
         lineWeight: 'lineWeight' in data ? data.lineWeight : i.lineWeight,
+        lineAnimation: 'lineAnimation' in data ? data.lineAnimation : i.lineAnimation,
+        sequenceFlow: 'sequenceFlow' in data ? data.sequenceFlow : i.sequenceFlow,
+        subDiagram: 'subDiagram' in data ? data.subDiagram : i.subDiagram,
         changeStatus: 'changeStatus' in data ? data.changeStatus : i.changeStatus,
         routing: data.routing ?? i.routing,
         waypoints: 'waypoints' in data ? data.waypoints : i.waypoints,
@@ -819,6 +949,49 @@ function App() {
         data: { ...(prev.data as IntegrationEdgeData), ...data },
       }
     })
+    setSelectedEdges((prev) =>
+      prev.map((edge) =>
+        edge.id === id ? { ...edge, data: { ...(edge.data as IntegrationEdgeData), ...data } } : edge,
+      ),
+    )
+  }
+
+  const handleUpdateEdges = (ids: string[], data: Partial<IntegrationEdgeData>) => {
+    const idSet = new Set(ids)
+    setDocument((prev) => {
+      let next = prev
+      for (const id of ids) {
+        next = updateIntegrationInView(next, drillPath, id, (i) => ({
+          ...i,
+          label: data.label ?? i.label,
+          direction: data.direction ?? i.direction,
+          protocol: data.protocol ?? i.protocol,
+          frequency: data.frequency ?? i.frequency,
+          dataFormat: data.dataFormat ?? i.dataFormat,
+          description: data.description ?? i.description,
+          interfaceSpec: data.interfaceSpec !== undefined ? data.interfaceSpec : i.interfaceSpec,
+          color: 'color' in data ? data.color : i.color,
+          lineStyle: 'lineStyle' in data ? data.lineStyle : i.lineStyle,
+          lineWeight: 'lineWeight' in data ? data.lineWeight : i.lineWeight,
+          lineAnimation: 'lineAnimation' in data ? data.lineAnimation : i.lineAnimation,
+          sequenceFlow: 'sequenceFlow' in data ? data.sequenceFlow : i.sequenceFlow,
+          changeStatus: 'changeStatus' in data ? data.changeStatus : i.changeStatus,
+          routing: data.routing ?? i.routing,
+          waypoints: 'waypoints' in data ? data.waypoints : i.waypoints,
+        }))
+      }
+      return next
+    })
+    setSelectedEdge((prev) =>
+      prev && idSet.has(prev.id)
+        ? { ...prev, data: { ...(prev.data as IntegrationEdgeData), ...data } }
+        : prev,
+    )
+    setSelectedEdges((prev) =>
+      prev.map((edge) =>
+        idSet.has(edge.id) ? { ...edge, data: { ...(edge.data as IntegrationEdgeData), ...data } } : edge,
+      ),
+    )
   }
 
   const handleDeleteNode = (id: string) => {
@@ -830,6 +1003,18 @@ function App() {
   const handleDeleteEdge = (id: string) => {
     setDocument((prev) => deleteIntegrationInView(prev, drillPath, id))
     setSelectedEdge(null)
+    setSelectedEdges([])
+    remountCanvas()
+  }
+
+  const handleDeleteEdges = (ids: string[]) => {
+    setDocument((prev) => {
+      let next = prev
+      for (const id of ids) next = deleteIntegrationInView(next, drillPath, id)
+      return next
+    })
+    setSelectedEdge(null)
+    setSelectedEdges([])
     remountCanvas()
   }
 
@@ -1137,7 +1322,7 @@ function App() {
           {
             id: 'export-docx',
             label: 'Export Word SAD',
-            hint: 'Solution Architecture Document',
+            hint: 'NFRs, nested diagrams, and sequence flows',
             icon: FileText,
             disabled: exporting,
             onSelect: () => void runOfficeExport('docx'),
@@ -1238,6 +1423,13 @@ function App() {
               setAnalysisFocus(undefined)
               openDialog('aiAnalysis')
             },
+          },
+          {
+            id: 'write-sad',
+            label: 'Write SAD…',
+            hint: 'AI narrative, NFRs, nested diagrams, sequence flows',
+            icon: NotebookPen,
+            onSelect: () => openDialog('aiSad'),
           },
           {
             id: 'change-design',
@@ -1538,9 +1730,11 @@ function App() {
               diagramPath={drillPath}
               onDocumentChange={setDocument}
               onDrillInto={handleDrillInto}
-              onSelectionChange={(node, edge) => {
+              onOpenSequenceHop={handleOpenSequenceHop}
+              onSelectionChange={(node, edge, extras) => {
                 setSelectedNode(node)
                 setSelectedEdge(edge)
+                setSelectedEdges(extras?.selectedEdges ?? (edge ? [edge] : []))
               }}
               focusNodeId={focusNodeId}
               onFocusComplete={() => setFocusNodeId(null)}
@@ -1557,13 +1751,17 @@ function App() {
                 <PropertiesPanel
                   selectedNode={selectedNode}
                   selectedEdge={selectedEdge}
+                  selectedEdges={selectedEdges}
                   drillPath={drillPath}
                   document={document}
                   onUpdateNode={handleUpdateNode}
                   onUpdateEdge={handleUpdateEdge}
+                  onUpdateEdges={handleUpdateEdges}
                   onDeleteNode={handleDeleteNode}
                   onDeleteEdge={handleDeleteEdge}
+                  onDeleteEdges={handleDeleteEdges}
                   onDrillInto={handleDrillInto}
+                  onOpenSequenceHop={handleOpenSequenceHop}
                   onAnalyzeCapability={(label) => {
                     setAnalysisFocus(label)
                     openDialog('aiAnalysis')
@@ -1740,6 +1938,21 @@ function App() {
         </DialogLayer>
       )}
 
+      {isDialogOpen('aiSad') && (
+        <DialogLayer id="aiSad" stack={dialogStack} onClose={() => closeDialog('aiSad')}>
+          <AiSadModal
+            document={document}
+            exporting={exporting}
+            onManageKeys={() => {
+              setSettingsTab('ai')
+              openDialog('settings')
+            }}
+            onExport={(draft) => void runOfficeExport('docx', draft)}
+            onClose={() => closeDialog('aiSad')}
+          />
+        </DialogLayer>
+      )}
+
       {isDialogOpen('changeDesign') && (
         <DialogLayer id="changeDesign" stack={dialogStack} onClose={() => closeDialog('changeDesign')}>
           <ChangeDesignModal
@@ -1758,6 +1971,8 @@ function App() {
           />
         </DialogLayer>
       )}
+
+      {capturingSad && <div className="sad-capture-banner">Capturing diagrams for the SAD…</div>}
 
       {gitMessage && (
         <div className="git-toast" onClick={() => setGitMessage(null)}>

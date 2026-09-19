@@ -16,12 +16,11 @@ import {
   type ChangeStatus,
 } from './architectureState'
 import { buildBrowseUrl, getCodeLinkLabel, hasCodeLink } from './codeLink'
-import { getProvider, loadAiSettings, type AiProviderId } from './aiProviders'
+import { getEngineApiKey, getProvider, loadAiSettings, type AiProviderId } from './aiProviders'
 import { aiFetch } from './aiApi'
 import {
   generateInstructionViaHost,
   isVsCodeHost,
-  runLinkedAgent,
   type VsCodeAgentRequest,
 } from './vscodeHost'
 
@@ -839,6 +838,66 @@ export function buildApplyInstruction(
   ].join('\n')
 }
 
+export function tasksForStory(
+  design: TechnicalChangeDesign,
+  storyId: string,
+): ComponentChangeTask[] {
+  const story = (design.stories ?? []).find((item) => item.id === storyId)
+  return design.tasks.filter(
+    (task) => task.storyId === storyId || Boolean(story?.systemIds.includes(task.systemId)),
+  )
+}
+
+export function buildStoryPackMarkdown(
+  doc: ArchitectureDocument,
+  design: TechnicalChangeDesign,
+  story: FeatureUserStory,
+): string {
+  const linked = tasksForStory(design, story.id)
+  const parts = [
+    `# User story: ${story.title.trim() || 'Untitled story'}`,
+    '',
+    `Part of feature **${design.title.trim() || 'Untitled feature'}**.`,
+    '',
+    design.definition?.trim() ? `## Feature definition\n${design.definition.trim()}` : '',
+    story.description?.trim() ? `## Story\n${story.description.trim()}` : '',
+    story.acceptanceCriteria?.trim() ? `## Story acceptance\n${story.acceptanceCriteria.trim()}` : '',
+    story.functionalRequirements?.trim()
+      ? `## Story functional requirements\n${story.functionalRequirements.trim()}`
+      : '',
+    story.nonFunctionalRequirements?.trim()
+      ? `## Story non-functional requirements\n${story.nonFunctionalRequirements.trim()}`
+      : '',
+    design.functionalRequirements?.trim()
+      ? `## Feature functional requirements\n${design.functionalRequirements.trim()}`
+      : '',
+    design.nonFunctionalRequirements?.trim()
+      ? `## Feature non-functional requirements\n${design.nonFunctionalRequirements.trim()}`
+      : '',
+    '',
+    `Implement ${linked.length} linked component job${linked.length === 1 ? '' : 's'} for this story only.`,
+  ]
+
+  for (const task of linked) {
+    parts.push('', '---', '', task.instruction?.trim() || buildInstructionMarkdown(doc, design, task))
+  }
+
+  return parts.filter((line) => line !== undefined).join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
+export function wrapAgentApplyPrompt(scopeLabel: string, body: string): string {
+  return [
+    '# APPLY ARCHITECTURE CHANGE NOW',
+    '',
+    'You are a coding agent. Edit the workspace. Do not stop at a plan or a summary.',
+    `Scope: ${scopeLabel}.`,
+    'Honor the feature definition and user stories below. Implement only the linked components.',
+    'Stay inside the named code paths. Do not invent secrets or unrelated systems.',
+    '',
+    body,
+  ].join('\n')
+}
+
 export function buildDesignPackMarkdown(doc: ArchitectureDocument, design: TechnicalChangeDesign): string {
   const counts = countTasksByKind(design)
   const parts = [
@@ -922,24 +981,28 @@ export interface GeneratedInstruction {
   error?: string
 }
 
+export type AgentDispatchMode = 'vscode' | 'github' | 'copilot-sdk' | 'clipboard'
+
+export interface AgentDispatchResult {
+  mode: AgentDispatchMode
+  instruction: string
+  message: string
+  url?: string
+}
+
 export async function applyComponentChange(options: {
   document: ArchitectureDocument
   design: TechnicalChangeDesign
   task: ComponentChangeTask
-}): Promise<{ mode: 'vscode' | 'clipboard'; instruction: string }> {
-  const instruction = buildApplyInstruction(options.document, options.design, options.task)
-  const payload = buildAgentRunPayload(options.document, options.design, options.task, true)
-  payload.instruction = instruction
-  if (isVsCodeHost()) {
-    runLinkedAgent(payload)
-    return { mode: 'vscode', instruction }
-  }
-  await copyText(instruction)
-  downloadMarkdown(
-    `${designFileSlug(options.design.title)}-${options.task.systemId}-apply.md`,
-    instruction,
-  )
-  return { mode: 'clipboard', instruction }
+}): Promise<AgentDispatchResult> {
+  const { dispatchAgentWork } = await import('./agentDispatch')
+  return dispatchAgentWork({
+    document: options.document,
+    design: options.design,
+    scope: 'component',
+    task: options.task,
+    apply: true,
+  })
 }
 
 export function buildAgentRunPayload(
@@ -971,7 +1034,7 @@ export async function generateComponentInstruction(options: {
   const settings = loadAiSettings()
   const provider = options.providerId ?? settings.selectedProvider
   const info = getProvider(provider)
-  const key = settings.keys[provider]?.trim() ?? ''
+  const key = getEngineApiKey(provider)
 
   const prompt =
     `Write a self-contained coding-agent instruction for this component. The feature definition is the source of truth. This architecture change is ${CHANGE_KIND_LABELS[options.task.changeKind] ?? 'Update'} (new = create, update = modify existing, retire = remove). Keep markdown. Stay scoped to this component. Required sections: Code path (use the linked repo/path exactly), Where to add (new files, folders, modules, registration points), Where to update (existing files, functions, configs, callers). Name concrete paths. If a path is missing, infer from the component name and mark it as a guess.`
@@ -1260,7 +1323,7 @@ export async function generateRequirements(options: {
   const settings = loadAiSettings()
   const provider = options.providerId ?? settings.selectedProvider
   const info = getProvider(provider)
-  const key = settings.keys[provider]?.trim() ?? ''
+  const key = getEngineApiKey(provider)
   const prompt = story
     ? `Write functional and non-functional requirements for this one user story. Return JSON with top-level functionalRequirements and nonFunctionalRequirements only (no stories array).`
     : (options.design.stories?.length ?? 0) > 0

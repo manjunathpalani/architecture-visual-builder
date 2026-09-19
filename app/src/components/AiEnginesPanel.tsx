@@ -81,7 +81,7 @@ export function AiEnginesPanel({ onClose, embedded = false }: AiEnginesPanelProp
     const result = await verifyAiKey({
       provider: id,
       apiKey: draftKey || undefined,
-      useServer: !draftKey && onServer,
+      useServer: !draftKey && (onServer || (id === 'copilot' && isVsCodeHost())),
       azureEndpoint: drafts.azureEndpoint,
       azureDeployment: drafts.azureDeployment,
     })
@@ -182,14 +182,22 @@ export function AiEnginesPanel({ onClose, embedded = false }: AiEnginesPanelProp
             const test = drafts.keyTests?.[provider.id]
             const busy = testing === provider.id
             const draftKey = drafts.keys[provider.id] ?? ''
-            const canTest = Boolean(draftKey.trim()) || onServer
+            const canTest =
+              Boolean(draftKey.trim()) || onServer || (provider.id === 'copilot' && isVsCodeHost())
             return (
               <section key={provider.id} className="git-int-card">
                 <div className="git-int-card-title">
                   <Sparkles size={18} />
                   <h3>{provider.label}</h3>
                   {provider.recommended && <span className="git-connected-badge">Default</span>}
-                  {onServer && <span className="git-connected-badge">Server key</span>}
+                  {onServer && (
+                    <span className="git-connected-badge">
+                      {provider.id === 'copilot' && isVsCodeHost() ? 'VS Code Copilot' : 'Server key'}
+                    </span>
+                  )}
+                  {provider.id === 'copilot' && isVsCodeHost() && !onServer && (
+                    <span className="git-connected-badge">VS Code</span>
+                  )}
                 </div>
                 <p className="code-link-hint">{provider.description}</p>
                 <p className="code-link-hint">
@@ -251,7 +259,13 @@ export function AiEnginesPanel({ onClose, embedded = false }: AiEnginesPanelProp
                     onClick={() => void saveAndTest(provider.id)}
                   >
                     {busy ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
-                    {busy ? 'Testing…' : draftKey.trim() ? 'Save & test' : 'Test server key'}
+                    {busy
+                      ? 'Testing…'
+                      : draftKey.trim()
+                        ? 'Save & test'
+                        : provider.id === 'copilot' && isVsCodeHost()
+                          ? 'Test Copilot'
+                          : 'Test server key'}
                   </button>
                   {draftKey.trim() && (
                     <button

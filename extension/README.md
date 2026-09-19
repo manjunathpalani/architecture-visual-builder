@@ -25,7 +25,8 @@ Then:
 1. **File → Open Folder** on the repo you want the agent to edit
 2. Command Palette → **Architecture Visual Builder: New Architecture Diagram** (creates a `.avb.json` file)
 3. Or open a `*.avb.json` / `*.architecture.json` / `*architecture*.json` file
-4. Paste an AI key in **Settings → AI engines → Save & test**. The extension calls the provider directly (no `npm run dev` server)
+4. Paste an AI key in **Settings → AI engines → Save & test**, or choose **GitHub Copilot** and sign in to Copilot in VS Code (no key). The extension calls the provider or `vscode.lm` directly (no `npm run dev` server)
+5. **AI → Write SAD** drafts Word document narrative, NFRs, nested diagrams, and sequence flows; **File → Export Word SAD** always includes those sections even without AI
 
 Do not open `package.json` or other non-diagram JSON in the builder. Those files are not architecture documents, and the extension will refuse to overwrite them.
 
@@ -60,7 +61,7 @@ Turn `extensions.verifySignature` back to `true` afterward if you only needed th
 ## Send Generate/Apply to an agent
 
 1. Link the component **Codebase → Path in repo** (for example `src`)
-2. Open the **Feature & apply** sub-tab, **Generate**, then **Apply**
+2. Open the **Feature & apply** sub-tab, add user stories, **Generate**, then **Send feature to agent** (or send one story / component). The instruction includes the feature definition and user stories.
 3. In this VS Code window that writes `.avb/apply-task.md` and opens Copilot Chat
 4. If Chat does not open, paste the copied instruction into Copilot Agent / Cursor / Grok
 

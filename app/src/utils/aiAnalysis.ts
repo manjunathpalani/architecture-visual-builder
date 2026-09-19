@@ -1,5 +1,5 @@
 import type { ArchitectureDocument, Integration, SystemNode } from '../types'
-import { getProvider, loadAiSettings, type AiProviderId } from './aiProviders'
+import { getEngineApiKey, getProvider, loadAiSettings, type AiProviderId } from './aiProviders'
 import { aiFetch, aiUnreachableMessage } from './aiApi'
 
 export type AnalysisVerdict = 'strong' | 'balanced' | 'at-risk'
@@ -134,7 +134,7 @@ export async function analyzeArchitectureCapabilities(options: {
         prompt,
         context,
         provider,
-        apiKey: settings.keys[provider],
+        apiKey: getEngineApiKey(provider),
         azureEndpoint: settings.azureEndpoint,
         azureDeployment: settings.azureDeployment,
       }),

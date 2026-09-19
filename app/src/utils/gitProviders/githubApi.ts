@@ -115,3 +115,113 @@ export async function writeGitHubFile(
     throw new GitApiError(body.message ?? 'Failed to push file', response.status)
   }
 }
+
+export interface CopilotAgentIssue {
+  number: number
+  htmlUrl: string
+  title: string
+}
+
+export async function createCopilotAgentIssue(options: {
+  owner: string
+  repo: string
+  title: string
+  body: string
+  branch?: string
+  customInstructions?: string
+}): Promise<CopilotAgentIssue> {
+  const title = options.title.trim().slice(0, 240) || 'Architecture agent task'
+  const body = options.body.length > 60_000 ? `${options.body.slice(0, 59_500)}\n\n…(truncated)` : options.body
+  const target = `${options.owner}/${options.repo}`
+  const branch = options.branch?.trim() || 'main'
+  const headers = {
+    ...getHeaders(),
+    'Content-Type': 'application/json',
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+
+  const agentAssignment = {
+    target_repo: target,
+    base_branch: branch,
+    custom_instructions: options.customInstructions?.trim() || '',
+    custom_agent: '',
+    model: '',
+  }
+
+  const attempts: Array<Record<string, unknown>> = [
+    {
+      title,
+      body,
+      assignees: ['copilot-swe-agent[bot]'],
+      agent_assignment: agentAssignment,
+    },
+    {
+      title,
+      body,
+      agent_assignment: agentAssignment,
+    },
+    {
+      title,
+      body,
+      assignees: ['copilot'],
+    },
+    { title, body },
+  ]
+
+  let lastError: GitApiError | null = null
+  for (const payload of attempts) {
+    const response = await fetch(`/api/github/repos/${options.owner}/${options.repo}/issues`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    })
+    if (response.ok) {
+      const issue = (await response.json()) as { number: number; html_url: string; title: string }
+      if (!payload.assignees && !payload.agent_assignment) {
+        await assignCopilotToIssue(options.owner, options.repo, issue.number, branch).catch(() => undefined)
+      }
+      return { number: issue.number, htmlUrl: issue.html_url, title: issue.title }
+    }
+    const errBody = (await response.json().catch(() => ({}))) as { message?: string }
+    lastError = new GitApiError(errBody.message ?? 'Failed to create GitHub issue', response.status)
+    if (response.status !== 422 && response.status !== 400) throw lastError
+  }
+  throw lastError ?? new GitApiError('Failed to create GitHub issue for Copilot', 502)
+}
+
+async function assignCopilotToIssue(owner: string, repo: string, number: number, branch: string) {
+  const response = await fetch(`/api/github/repos/${owner}/${repo}/issues/${number}/assignees`, {
+    method: 'POST',
+    headers: {
+      ...getHeaders(),
+      'Content-Type': 'application/json',
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({
+      assignees: ['copilot-swe-agent[bot]'],
+      agent_assignment: {
+        target_repo: `${owner}/${repo}`,
+        base_branch: branch,
+        custom_instructions: '',
+        custom_agent: '',
+        model: '',
+      },
+    }),
+  })
+  if (!response.ok) {
+    await fetch(`/api/github/repos/${owner}/${repo}/issues/${number}/comments`, {
+      method: 'POST',
+      headers: {
+        ...getHeaders(),
+        'Content-Type': 'application/json',
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        body: '@copilot Implement this architecture-driven change. Honor the feature definition and user stories in the issue body.',
+      }),
+    })
+  }
+}

@@ -2,6 +2,7 @@ import type { Edge, Node } from '@xyflow/react'
 import {
   getFlowNodeType,
   parseEdgeRouting,
+  parseLineAnimation,
   parseLineStyle,
   parseLineWeight,
   type ArchitectureDocument,
@@ -12,11 +13,13 @@ import {
   type IntegrationLineWeight,
   type IntegrationProtocol,
   type Position,
+  type SequenceFlowStep,
   type SystemNode,
   type SystemProperties,
   type SystemType,
   type EdgeRouting,
 } from '../types'
+import type { SubDiagram } from '../types/diagram'
 import { sanitizeChangeDesigns } from './changeDesign'
 
 export interface IntegrationNodeData extends Record<string, unknown> {
@@ -56,7 +59,12 @@ export interface IntegrationEdgeData extends Record<string, unknown> {
   color?: string
   lineStyle?: IntegrationLineStyle
   lineWeight?: IntegrationLineWeight
+  lineAnimation?: boolean
   changeStatus?: 'unchanged' | 'new' | 'modified' | 'retired'
+  /** Runtime: canvas-wide line animation master switch */
+  canvasLineAnimation?: boolean
+  sequenceFlow?: SequenceFlowStep[]
+  subDiagram?: SubDiagram
   routing?: EdgeRouting
   waypoints?: Position[]
   /** Runtime: relative flow vs selected box — out leaves selection, in enters it */
@@ -123,7 +131,7 @@ export function documentToFlow(document: ArchitectureDocument): {
       id: system.id,
       type: flowType,
       position: system.position,
-      zIndex: flowType === 'group' ? -1 : 0,
+      zIndex: flowType === 'group' || flowType === 'shape' ? -1 : 0,
       data: {
         systemType: system.type,
         label: system.label,
@@ -153,9 +161,12 @@ export function documentToFlow(document: ArchitectureDocument): {
       color: integration.color,
       lineStyle: integration.lineStyle ? parseLineStyle(integration.lineStyle) : undefined,
       lineWeight: integration.lineWeight ? parseLineWeight(integration.lineWeight) : undefined,
+      lineAnimation: parseLineAnimation(integration.lineAnimation),
       changeStatus: integration.changeStatus ?? 'unchanged',
       routing: parseEdgeRouting(integration.routing),
       waypoints: integration.waypoints ?? [],
+      sequenceFlow: integration.sequenceFlow,
+      subDiagram: integration.subDiagram,
       jiraIssueKey: integration.jiraIssueKey,
       jiraIssueSummary: integration.jiraIssueSummary,
       jiraIssueUrl: integration.jiraIssueUrl,
@@ -208,9 +219,12 @@ export function flowToDocument(
     color: edge.data?.color,
     lineStyle: edge.data?.lineStyle,
     lineWeight: edge.data?.lineWeight,
+    lineAnimation: parseLineAnimation(edge.data?.lineAnimation),
     changeStatus: edge.data?.changeStatus,
     routing: parseEdgeRouting(edge.data?.routing),
     waypoints: edge.data?.waypoints,
+    sequenceFlow: edge.data?.sequenceFlow,
+    subDiagram: edge.data?.subDiagram,
     jiraIssueKey: edge.data?.jiraIssueKey,
     jiraIssueSummary: edge.data?.jiraIssueSummary,
     jiraIssueUrl: edge.data?.jiraIssueUrl,

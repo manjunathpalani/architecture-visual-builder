@@ -2,15 +2,19 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useReactFlow,
+  useStoreApi,
   type EdgeProps,
 } from '@xyflow/react'
 import { useEffect, useRef } from 'react'
-import { parseLineStyle, parseLineWeight, type Position } from '../../types'
+import { Layers } from 'lucide-react'
+import { parseLineAnimation, parseLineStyle, parseLineWeight, type Position } from '../../types'
 import type { EdgeFocusRelation, IntegrationEdgeData } from '../../utils/jsonIO'
 import { DIRECTION_COLORS, resolveEdgeColor } from '../../utils/flowTrace'
 import { CHANGE_STATUS_COLORS, parseChangeStatus } from '../../utils/architectureState'
-import { buildEdgePath, segmentMidpoints } from '../../utils/edgeRouting'
+import { buildEdgePath, nearestWaypointInsertIndex, pointAlongPath } from '../../utils/edgeRouting'
 import { useEdgeEdit } from './edgeEdit'
+import { useDiagramLock } from '../nodes/diagramLockContext'
+import { useDrillIn, useSequenceHop } from '../nodes/drillInContext'
 
 const FOCUS_COLORS: Record<'out' | 'in', string> = {
   out: '#10b981',
@@ -41,24 +45,44 @@ export function IntegrationEdge({
   selected,
 }: EdgeProps) {
   const edgeData = data as IntegrationEdgeData | undefined
+  const layoutLocked = useDiagramLock()
+  const onDrillInto = useDrillIn()
+  const { openHop } = useSequenceHop()
   const { screenToFlowPosition } = useReactFlow()
+  const store = useStoreApi()
   const { updateEdgeGeometry } = useEdgeEdit()
   const dragRef = useRef<{ index: number; points: Position[] } | null>(null)
+  const pendingBendRef = useRef<{
+    insertAt: number
+    start: Position
+    origin: Position
+    waypoints: Position[]
+  } | null>(null)
   const geometryRef = useRef({ id, updateEdgeGeometry, screenToFlowPosition })
   geometryRef.current = { id, updateEdgeGeometry, screenToFlowPosition }
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
-      const drag = dragRef.current
-      if (!drag) return
       const { screenToFlowPosition: toFlow, id: edgeId, updateEdgeGeometry: update } = geometryRef.current
       const point = toFlow({ x: event.clientX, y: event.clientY })
+      const pending = pendingBendRef.current
+      if (pending && !dragRef.current) {
+        if (Math.hypot(point.x - pending.origin.x, point.y - pending.origin.y) < 5) return
+        const next = [...pending.waypoints]
+        next.splice(pending.insertAt, 0, pending.start)
+        update(edgeId, { waypoints: next })
+        dragRef.current = { index: pending.insertAt, points: next }
+        pendingBendRef.current = null
+      }
+      const drag = dragRef.current
+      if (!drag) return
       const next = drag.points.map((p, i) => (i === drag.index ? point : p))
       update(edgeId, { waypoints: next })
       dragRef.current = { ...drag, points: next }
     }
     const onUp = () => {
       dragRef.current = null
+      pendingBendRef.current = null
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
@@ -91,6 +115,9 @@ export function IntegrationEdge({
   const colorBy = edgeData?.colorBy ?? 'direction'
   const lineStyle = parseLineStyle(edgeData?.lineStyle)
   const lineWeight = parseLineWeight(edgeData?.lineWeight)
+  const canvasAnimation = edgeData?.canvasLineAnimation !== false
+  const edgeAnimation = parseLineAnimation(edgeData?.lineAnimation)
+  const animationOn = canvasAnimation && (edgeAnimation || isPlayCurrent)
 
   const changeStatus = parseChangeStatus(edgeData?.changeStatus)
   const styledColor = resolveEdgeColor(edgeData, colorBy)
@@ -131,14 +158,14 @@ export function IntegrationEdge({
     (direction === 'inbound' || isBidirectional || focusRelation === 'in')
 
   const beginWaypointDrag = (event: React.PointerEvent, index: number, nextPoints: Position[]) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || layoutLocked) return
     event.preventDefault()
     event.stopPropagation()
     dragRef.current = { index, points: nextPoints }
   }
 
   const addWaypointAt = (event: React.PointerEvent, insertAt: number, seed: Position) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || layoutLocked) return
     event.preventDefault()
     event.stopPropagation()
     const next = [...waypoints]
@@ -147,13 +174,37 @@ export function IntegrationEdge({
     dragRef.current = { index: insertAt, points: next }
   }
 
+  const beginCurveMove = (event: React.PointerEvent) => {
+    if (event.button !== 0 || layoutLocked) return
+    const point = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    if (Math.hypot(point.x - sourceX, point.y - sourceY) < 22) return
+    if (Math.hypot(point.x - targetX, point.y - targetY) < 22) return
+    event.preventDefault()
+    event.stopPropagation()
+    store.getState().addSelectedEdges([id])
+    pendingBendRef.current = {
+      insertAt: nearestWaypointInsertIndex(points, point),
+      start: point,
+      origin: point,
+      waypoints,
+    }
+  }
+
   const removeWaypoint = (event: React.MouseEvent, index: number) => {
     event.preventDefault()
     event.stopPropagation()
     updateEdgeGeometry(id, { waypoints: waypoints.filter((_, i) => i !== index) })
   }
 
-  const mids = selected ? segmentMidpoints(points) : []
+  const sequenceSteps = edgeData?.sequenceFlow ?? []
+  const hasSequence = sequenceSteps.length > 0 || Boolean(edgeData?.subDiagram)
+
+  const addHandles = selected
+    ? Array.from({ length: waypoints.length + 1 }, (_, insertAt) => {
+        const point = pointAlongPath(edgePath, (insertAt + 0.5) / (waypoints.length + 1))
+        return point ? { insertAt, point } : null
+      }).filter((item): item is { insertAt: number; point: Position } => item != null)
+    : []
 
   return (
     <>
@@ -209,8 +260,19 @@ export function IntegrationEdge({
         }}
         className={`integration-edge direction-${direction} focus-${focusRelation} change-${changeStatus} ${selected ? 'selected' : ''} ${isFocused ? 'flow-highlighted' : ''} ${isPlayCurrent ? 'flow-play-current' : ''}`}
       />
+      {!layoutLocked && (
+        <path
+          d={edgePath}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={26}
+          className="edge-curve-grab"
+          pointerEvents="stroke"
+          onPointerDown={beginCurveMove}
+        />
+      )}
 
-      {showForwardParticle && (
+      {animationOn && showForwardParticle && (
         <circle
           r={isFocused ? 5 : 4}
           fill={color}
@@ -225,7 +287,7 @@ export function IntegrationEdge({
         </circle>
       )}
 
-      {showReverseParticle && (
+      {animationOn && showReverseParticle && (
         <circle
           r={isFocused ? 4.5 : 3}
           fill={color}
@@ -243,7 +305,7 @@ export function IntegrationEdge({
         </circle>
       )}
 
-      {(isFocused || isPlayCurrent) && (
+      {animationOn && (isFocused || isPlayCurrent) && (
         <circle r="3" fill={color} opacity="0.55" className="flow-particle-active">
           <animateMotion
             dur={isPlayCurrent ? '0.9s' : '1.4s'}
@@ -286,6 +348,7 @@ export function IntegrationEdge({
               : (DIRECTION_TEXT[direction] ?? direction)}
           </span>
           {selected && (
+            <>
             <button
               type="button"
               className="edge-arrow-flip nodrag nopan"
@@ -307,6 +370,19 @@ export function IntegrationEdge({
                     ? '— Flip arrow'
                     : '→ Flip arrow'}
             </button>
+            <button
+              type="button"
+              className="edge-arrow-flip nodrag nopan"
+              title={edgeAnimation ? 'Turn off moving dots on this line' : 'Turn on moving dots on this line'}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                updateEdgeGeometry(id, { lineAnimation: !edgeAnimation })
+              }}
+            >
+              {edgeAnimation ? '● Animation on' : '○ Animation off'}
+            </button>
+            </>
           )}
           {changeStatus !== 'unchanged' && !isDimmed && (
             <span className={`edge-change-flag change-${changeStatus}`}>
@@ -316,7 +392,56 @@ export function IntegrationEdge({
           {edgeData?.protocol && !isDimmed && (
             <span className="edge-protocol">{edgeData.protocol}</span>
           )}
+          {hasSequence && (
+            <div className="edge-sequence">
+              {sequenceSteps.length > 0 && (
+                <ol className="edge-sequence-hops">
+                  {sequenceSteps.map((step, index) => (
+                    <li key={step.id}>
+                      <button
+                        type="button"
+                        className="edge-sequence-hop nodrag nopan"
+                        title={`Open ${step.label} in its diagram`}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          openHop(id, step)
+                        }}
+                      >
+                        {index + 1}. {step.label}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <button
+                type="button"
+                className="edge-sequence-open nodrag nopan"
+                title="Open this integration’s sequence diagram"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onDrillInto(id, label, 'integration')
+                }}
+              >
+                <Layers size={12} />
+                Sequence
+              </button>
+            </div>
+          )}
         </div>
+        )}
+
+        {!isActive && !isDimmed && sequenceSteps.length > 0 && (
+          <div
+            className="edge-sequence-compact nodrag nopan"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+            title={sequenceSteps.map((step) => step.label).join(' → ')}
+          >
+            {sequenceSteps.map((step) => step.label).join(' → ')}
+          </div>
         )}
 
         {selected &&
@@ -335,15 +460,15 @@ export function IntegrationEdge({
           ))}
 
         {selected &&
-          mids.map((mid, index) => (
+          addHandles.map(({ insertAt, point }) => (
             <div
-              key={`mid-${index}`}
+              key={`mid-${insertAt}`}
               className="edge-waypoint-add nodrag nopan"
-              title="Drag to add a bend"
+              title="Drag to move or bend this line"
               style={{
-                transform: `translate(-50%, -50%) translate(${mid.x}px, ${mid.y}px)`,
+                transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`,
               }}
-              onPointerDown={(event) => addWaypointAt(event, index, mid)}
+              onPointerDown={(event) => addWaypointAt(event, insertAt, point)}
             />
           ))}
       </EdgeLabelRenderer>

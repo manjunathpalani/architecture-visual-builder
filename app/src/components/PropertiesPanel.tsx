@@ -17,6 +17,7 @@ import type {
   EdgeRouting,
   IntegrationFrequency,
   IntegrationProtocol,
+  SequenceFlowStep,
   SystemType,
   TechnicalChangeDesign,
 } from '../types'
@@ -30,6 +31,7 @@ import {
   LINE_WEIGHT_OPTIONS,
   SYSTEM_TYPE_CONFIG,
   parseEdgeRouting,
+  parseLineAnimation,
   parseLineStyle,
   parseLineWeight,
 } from '../types'
@@ -46,6 +48,7 @@ import {
 import { CodeLinkSection } from './CodeLinkSection'
 import { WorkItemLinkSection } from './WorkItemLinkSection'
 import { InterfaceSpecSection } from './InterfaceSpecSection'
+import { SequenceFlowSection } from './SequenceFlowSection'
 import { isApiIntegration, isApiNode } from '../utils/apiComponent'
 import { hasCodeLink } from '../utils/codeLink'
 import { tasksForSystem } from '../utils/changeDesign'
@@ -71,13 +74,17 @@ import {
 interface PropertiesPanelProps {
   selectedNode: Node<IntegrationNodeData> | null
   selectedEdge: Edge<IntegrationEdgeData> | null
+  selectedEdges?: Edge<IntegrationEdgeData>[]
   document: ArchitectureDocument
   drillPath: DiagramPath
   onUpdateNode: (id: string, data: Partial<IntegrationNodeData>) => void
   onUpdateEdge: (id: string, data: Partial<IntegrationEdgeData>) => void
+  onUpdateEdges?: (ids: string[], data: Partial<IntegrationEdgeData>) => void
   onDeleteNode: (id: string) => void
   onDeleteEdge: (id: string) => void
-  onDrillInto: (systemId: string, label: string) => void
+  onDeleteEdges?: (ids: string[]) => void
+  onDrillInto: (systemId: string, label: string, kind?: 'system' | 'integration') => void
+  onOpenSequenceHop?: (edgeId: string, step: SequenceFlowStep) => void
   onAnalyzeCapability?: (label: string) => void
   onReadSaasMetadata?: () => void
   onOpenChangeDesign?: (systemId: string) => void
@@ -104,13 +111,17 @@ const DIAGRAM_SHAPES: DiagramShape[] = [
 export function PropertiesPanel({
   selectedNode,
   selectedEdge,
+  selectedEdges,
   document,
   drillPath,
   onUpdateNode,
   onUpdateEdge,
+  onUpdateEdges,
   onDeleteNode,
   onDeleteEdge,
+  onDeleteEdges,
   onDrillInto,
+  onOpenSequenceHop,
   onAnalyzeCapability,
   onReadSaasMetadata,
   onOpenChangeDesign,
@@ -768,20 +779,35 @@ export function PropertiesPanel({
 
   if (selectedEdge) {
     const data = liveEdgeData(document, drillPath, selectedEdge)
+    const bulkEdgeIds =
+      !selectedNode && (selectedEdges?.length ?? 0) > 1
+        ? selectedEdges!.map((edge) => edge.id)
+        : [selectedEdge.id]
+    const bulkEdges = bulkEdgeIds.length > 1
+    const patchEdge = (patch: Partial<IntegrationEdgeData>) => {
+      if (bulkEdges && onUpdateEdges) onUpdateEdges(bulkEdgeIds, patch)
+      else onUpdateEdge(selectedEdge.id, patch)
+    }
     return (
       <aside className={`properties ${variant === 'flyout' ? 'is-flyout' : ''}`}>
         <div className="panel-header">
           <div>
-            <h2>Integration Properties</h2>
-            <p>{data.label}</p>
+            <h2>{bulkEdges ? `${bulkEdgeIds.length} integrations` : 'Integration Properties'}</h2>
+            <p>{bulkEdges ? 'Shared properties — changes apply to all selected' : data.label}</p>
           </div>
           {headerActions}
         </div>
         <div className="property-form" ref={formRef}>
+          {bulkEdges && (
+            <p className="code-link-hint">
+              Colour, protocol, frequency, line style, and arrows update every selected integration together.
+            </p>
+          )}
           <PropertyGroupToolbar
             onExpandAll={() => expandGroups(EDGE_PROPERTY_GROUPS)}
             onMergeAll={mergeAll}
           />
+          {!bulkEdges && (
           <PropertyGroup
             id="identity"
             title="Identity"
@@ -793,16 +819,18 @@ export function PropertiesPanel({
             Integration Name
             <input
               value={data.label}
-              onChange={(e) => onUpdateEdge(selectedEdge.id, { label: e.target.value })}
+              onChange={(e) => patchEdge({ label: e.target.value })}
             />
           </label>
           </PropertyGroup>
+          )}
           <PropertyGroup
             id="line"
             title="Line & arrows"
             summary={[
               EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.label,
               data.color ? 'custom color' : null,
+              parseLineAnimation(data.lineAnimation) ? 'animated' : 'animation off',
             ]
               .filter(Boolean)
               .join(' · ')}
@@ -820,7 +848,7 @@ export function PropertiesPanel({
                   className={`color-swatch ${data.color === color ? 'active' : ''}`}
                   style={{ background: color }}
                   title={color}
-                  onClick={() => onUpdateEdge(selectedEdge.id, { color })}
+                  onClick={() => patchEdge({ color })}
                 />
               ))}
             </div>
@@ -828,12 +856,12 @@ export function PropertiesPanel({
               <input
                 type="color"
                 value={data.color ?? '#6366f1'}
-                onChange={(e) => onUpdateEdge(selectedEdge.id, { color: e.target.value })}
+                onChange={(e) => patchEdge({ color: e.target.value })}
               />
               <button
                 type="button"
                 className="btn-reset-color"
-                onClick={() => onUpdateEdge(selectedEdge.id, { color: undefined })}
+                onClick={() => patchEdge({ color: undefined })}
               >
                 Reset default
               </button>
@@ -848,13 +876,38 @@ export function PropertiesPanel({
                   type="button"
                   className={`arrow-direction-btn ${parseLineStyle(data.lineStyle) === option.id ? 'active' : ''}`}
                   title={option.hint}
-                  onClick={() => onUpdateEdge(selectedEdge.id, { lineStyle: option.id })}
+                  onClick={() => patchEdge({ lineStyle: option.id })}
                 >
                   <strong className={`line-style-preview style-${option.id}`} />
                   <span>{option.label}</span>
                 </button>
               ))}
             </div>
+          </div>
+          <div className="arrow-direction-section">
+            <span className="color-picker-label">Line animation</span>
+            <div className="arrow-direction-grid line-weight-grid">
+              <button
+                type="button"
+                className={`arrow-direction-btn ${parseLineAnimation(data.lineAnimation) ? 'active' : ''}`}
+                title="Moving dots along this integration"
+                onClick={() => patchEdge({ lineAnimation: true })}
+              >
+                <span>On</span>
+              </button>
+              <button
+                type="button"
+                className={`arrow-direction-btn ${parseLineAnimation(data.lineAnimation) ? '' : 'active'}`}
+                title="Show a static line with no moving dots"
+                onClick={() => patchEdge({ lineAnimation: false })}
+              >
+                <span>Off</span>
+              </button>
+            </div>
+            <span className="code-link-hint">
+              Moving dots follow the arrow direction. Turn off for a static line.
+              {data.canvasLineAnimation === false ? ' All line animation is currently off in Tools.' : ''}
+            </span>
           </div>
           <div className="arrow-direction-section">
             <span className="color-picker-label">Line thickness</span>
@@ -864,7 +917,7 @@ export function PropertiesPanel({
                   key={option.id}
                   type="button"
                   className={`arrow-direction-btn ${parseLineWeight(data.lineWeight) === option.id ? 'active' : ''}`}
-                  onClick={() => onUpdateEdge(selectedEdge.id, { lineWeight: option.id })}
+                  onClick={() => patchEdge({ lineWeight: option.id })}
                 >
                   <strong className={`line-weight-preview weight-${option.id}`} />
                   <span>{option.label}</span>
@@ -877,7 +930,7 @@ export function PropertiesPanel({
             <select
               value={parseEdgeRouting(data.routing)}
               onChange={(e) =>
-                onUpdateEdge(selectedEdge.id, {
+                patchEdge({
                   routing: e.target.value as EdgeRouting,
                 })
               }
@@ -891,14 +944,14 @@ export function PropertiesPanel({
             <span className="code-link-hint">
               {EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.hint}
               {' · '}
-              Drag a connector end to another port. Drag the dots on the line to bend it.
+              Drag the curved line to move it. Drag a connector end to another port. Drag the dots to bend it.
             </span>
           </label>
           {(data.waypoints?.length ?? 0) > 0 && (
             <button
               type="button"
               className="btn-secondary"
-              onClick={() => onUpdateEdge(selectedEdge.id, { waypoints: [] })}
+              onClick={() => patchEdge({ waypoints: [] })}
             >
               Reset bends
             </button>
@@ -912,7 +965,7 @@ export function PropertiesPanel({
                   type="button"
                   className={`arrow-direction-btn ${data.direction === option.id ? 'active' : ''}`}
                   onClick={() =>
-                    onUpdateEdge(selectedEdge.id, { direction: option.id })
+                    patchEdge({ direction: option.id })
                   }
                   title={option.hint}
                 >
@@ -925,7 +978,7 @@ export function PropertiesPanel({
               type="button"
               className="btn-secondary"
               onClick={() =>
-                onUpdateEdge(selectedEdge.id, {
+                patchEdge({
                   direction:
                     data.direction === 'outbound'
                       ? 'inbound'
@@ -942,6 +995,40 @@ export function PropertiesPanel({
             </span>
           </div>
           </PropertyGroup>
+          {!bulkEdges && (
+          <PropertyGroup
+            id="sequence"
+            title="Sequence flow"
+            summary={
+              (data.sequenceFlow?.length ?? 0) > 0
+                ? `${data.sequenceFlow?.length} hops`
+                : data.subDiagram
+                  ? 'sequence diagram'
+                  : undefined
+            }
+            expanded={isOpen('sequence')}
+            onToggle={toggle}
+          >
+            <SequenceFlowSection
+              document={document}
+              drillPath={drillPath}
+              integration={{
+                id: selectedEdge.id,
+                source: selectedEdge.source,
+                target: selectedEdge.target,
+                label: data.label,
+                direction: data.direction,
+                protocol: data.protocol,
+                frequency: data.frequency,
+                sequenceFlow: data.sequenceFlow,
+                subDiagram: data.subDiagram,
+              }}
+              onChange={(sequenceFlow) => patchEdge({ sequenceFlow })}
+              onOpenSequenceDiagram={() => onDrillInto(selectedEdge.id, data.label, 'integration')}
+              onOpenHop={(step) => onOpenSequenceHop?.(selectedEdge.id, step)}
+            />
+          </PropertyGroup>
+          )}
           <PropertyGroup
             id="spec"
             title="Contract"
@@ -954,7 +1041,7 @@ export function PropertiesPanel({
             <select
               value={data.protocol}
               onChange={(e) =>
-                onUpdateEdge(selectedEdge.id, {
+                patchEdge({
                   protocol: e.target.value as IntegrationProtocol,
                 })
               }
@@ -971,7 +1058,7 @@ export function PropertiesPanel({
             <select
               value={data.frequency}
               onChange={(e) =>
-                onUpdateEdge(selectedEdge.id, {
+                patchEdge({
                   frequency: e.target.value as IntegrationFrequency,
                 })
               }
@@ -987,24 +1074,26 @@ export function PropertiesPanel({
             Data Format
             <input
               value={data.dataFormat}
-              onChange={(e) => onUpdateEdge(selectedEdge.id, { dataFormat: e.target.value })}
+              onChange={(e) => patchEdge({ dataFormat: e.target.value })}
             />
           </label>
+          {!bulkEdges && (
           <label>
             Description
             <textarea
               rows={3}
               value={data.description}
-              onChange={(e) => onUpdateEdge(selectedEdge.id, { description: e.target.value })}
+              onChange={(e) => patchEdge({ description: e.target.value })}
             />
           </label>
+          )}
 
           <label>
             Architecture state
             <select
               value={parseChangeStatus(data.changeStatus)}
               onChange={(e) =>
-                onUpdateEdge(selectedEdge.id, { changeStatus: e.target.value as ChangeStatus })
+                patchEdge({ changeStatus: e.target.value as ChangeStatus })
               }
             >
               {CHANGE_STATUSES.map((status) => (
@@ -1018,16 +1107,17 @@ export function PropertiesPanel({
             </span>
           </label>
 
-          {(isApiIntegration(data) || data.interfaceSpec) && (
+          {!bulkEdges && (isApiIntegration(data) || data.interfaceSpec) && (
             <InterfaceSpecSection
               interfaceSpecJson={data.interfaceSpec}
               defaultTitle={data.label}
               onChange={(json) =>
-                onUpdateEdge(selectedEdge.id, { interfaceSpec: json || undefined })
+                patchEdge({ interfaceSpec: json || undefined })
               }
             />
           )}
 
+          {!bulkEdges && (
           <WorkItemLinkSection
             fields={{
               jiraIssueKey: data.jiraIssueKey,
@@ -1038,16 +1128,20 @@ export function PropertiesPanel({
               adoWorkItemTitle: data.adoWorkItemTitle,
               adoWorkItemUrl: data.adoWorkItemUrl,
             }}
-            onChange={(fields) => onUpdateEdge(selectedEdge.id, { ...fields })}
+            onChange={(fields) => patchEdge({ ...fields })}
           />
+          )}
           </PropertyGroup>
 
           <button
             type="button"
             className="btn-danger"
-            onClick={() => onDeleteEdge(selectedEdge.id)}
+            onClick={() => {
+              if (bulkEdges && onDeleteEdges) onDeleteEdges(bulkEdgeIds)
+              else onDeleteEdge(selectedEdge.id)
+            }}
           >
-            Delete Integration
+            {bulkEdges ? `Delete ${bulkEdgeIds.length} integrations` : 'Delete Integration'}
           </button>
         </div>
       </aside>
@@ -1093,6 +1187,9 @@ function liveEdgeData(
     color: integration.color,
     lineStyle: integration.lineStyle,
     lineWeight: integration.lineWeight,
+    lineAnimation: parseLineAnimation(integration.lineAnimation),
+    sequenceFlow: integration.sequenceFlow,
+    subDiagram: integration.subDiagram,
     changeStatus: integration.changeStatus,
     routing: parseEdgeRouting(integration.routing),
     waypoints: integration.waypoints,

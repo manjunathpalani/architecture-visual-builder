@@ -7,6 +7,9 @@ export interface VsCodeAgentRequest {
   gitRepo?: string
   apply?: boolean
   changeKind?: 'new' | 'update' | 'retire'
+  scope?: 'feature' | 'story' | 'component'
+  featureTitle?: string
+  storyTitle?: string
 }
 
 export interface AiApiHostResult {
@@ -31,6 +34,9 @@ type ClientMessage =
       gitRepo?: string
       apply?: boolean
       changeKind?: 'new' | 'update' | 'retire'
+      scope?: 'feature' | 'story' | 'component'
+      featureTitle?: string
+      storyTitle?: string
     }
   | { type: 'openPath'; path: string }
   | { type: 'generateInstruction'; requestId: string; prompt: string; context: string }

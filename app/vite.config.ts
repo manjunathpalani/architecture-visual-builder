@@ -4,6 +4,7 @@ import { xaiDiagramPlugin } from './server/xaiDiagramPlugin'
 import { jiraProxyPlugin } from './server/jiraProxyPlugin'
 import { saasProxyPlugin } from './server/saasProxyPlugin'
 import { oauthConfigPlugin } from './server/oauthConfigPlugin'
+import { copilotAgentPlugin } from './server/copilotAgentPlugin'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -12,9 +13,12 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-  plugins: [react(), xaiDiagramPlugin(), jiraProxyPlugin(), saasProxyPlugin(), oauthConfigPlugin()],
+  plugins: [react(), xaiDiagramPlugin(), jiraProxyPlugin(), saasProxyPlugin(), oauthConfigPlugin(), copilotAgentPlugin()],
   optimizeDeps: {
-    include: ['pptxgenjs', 'docx', 'jszip'],
+    include: ['docx', 'jszip'],
+    // Do not pre-bundle `pptxgenjs` because it pulls server-side deps
+    // (jsdom/acorn/cssstyle) that break Vite's dependency optimizer.
+    exclude: ['pptxgenjs', 'jsdom', 'acorn', 'cssstyle'],
   },
   build: {
     // Main app chunk is ~575 kB after splitting React / xyflow / export libs.

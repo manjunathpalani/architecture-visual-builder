@@ -1,5 +1,5 @@
-import PptxGenJS from 'pptxgenjs'
 import { downloadBlob, type ArchitectureBrief, type SystemBrief } from './architectureNarrative'
+import type PptxGenJS from 'pptxgenjs'
 import type { DiagramImage } from './captureDiagram'
 
 type Slide = ReturnType<PptxGenJS['addSlide']>
@@ -15,22 +15,32 @@ const WHITE = 'FFFFFF'
 const CARD = 'FFFFFF'
 const LINE = 'E2E8F0'
 
-function createPresentation(): PptxGenJS {
-  const imported = PptxGenJS as unknown
-  const Ctor =
-    typeof imported === 'function'
-      ? (imported as new () => PptxGenJS)
-      : typeof imported === 'object' && imported && 'default' in imported && typeof (imported as { default: unknown }).default === 'function'
-        ? ((imported as { default: new () => PptxGenJS }).default)
-        : null
-  if (!Ctor) {
-    throw new Error('PowerPoint library failed to load. Reload the page and try Export again.')
+async function createPresentation(): Promise<PptxGenJS> {
+  // Try to load the browser-friendly build first, fall back to main package.
+  let imported: unknown = null
+  try {
+    // Prefer the browser bundle if available. Use @vite-ignore so Vite doesn't
+    // pre-bundle or statically analyze this import during build.
+    // @ts-ignore
+    imported = await import(/* @vite-ignore */ 'pptxgenjs/dist/pptxgen.browser.js')
+  } catch {
+    try {
+      // Fallback to main package, still ignored by Vite's static analysis.
+      // @ts-ignore
+      imported = await import(/* @vite-ignore */ 'pptxgenjs')
+    } catch (err) {
+      throw new Error('PowerPoint library failed to load. Reload the page and try Export again.')
+    }
   }
+
+  const mod = imported as any
+  const Ctor = (mod && (mod.default ?? mod)) as new () => PptxGenJS
+  if (!Ctor) throw new Error('PowerPoint library failed to load. Reload the page and try Export again.')
   return new Ctor()
 }
 
 export async function exportArchitecturePptx(brief: ArchitectureBrief, diagram?: DiagramImage | null) {
-  const pres = createPresentation()
+  const pres = await createPresentation()
   pres.layout = 'LAYOUT_WIDE'
   pres.title = `${brief.title} — Architecture Briefing`
   pres.author = 'Architecture Visual Builder'

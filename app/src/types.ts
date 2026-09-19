@@ -138,6 +138,12 @@ export function parseLineWeight(value?: string): IntegrationLineWeight {
   return 'medium'
 }
 
+/** Moving dots along an integration. Missing/true = on. */
+export function parseLineAnimation(value?: boolean | string | null): boolean {
+  if (value === false || value === 'off' || value === 'false') return false
+  return true
+}
+
 export interface Position {
   x: number
   y: number
@@ -186,6 +192,12 @@ export interface SystemNode {
   subDiagram?: SubDiagram
 }
 
+export interface SequenceFlowStep {
+  id: string
+  systemId: string
+  label: string
+}
+
 export interface Integration {
   id: string
   source: string
@@ -202,9 +214,15 @@ export interface Integration {
   color?: string
   lineStyle?: IntegrationLineStyle
   lineWeight?: IntegrationLineWeight
+  /** Moving dots along the line. Default on. */
+  lineAnimation?: boolean
   changeStatus?: 'unchanged' | 'new' | 'modified' | 'retired'
   routing?: EdgeRouting
   waypoints?: Position[]
+  /** Ordered hops this integration travels through, including nested-diagram components. */
+  sequenceFlow?: SequenceFlowStep[]
+  /** Nested sequence diagram owned by this integration. */
+  subDiagram?: SubDiagram
   jiraIssueKey?: string
   jiraIssueSummary?: string
   jiraIssueUrl?: string

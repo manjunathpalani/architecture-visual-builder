@@ -12,6 +12,7 @@ import { documentToFlow, flowToDocument, generateId } from './jsonIO'
 import { layoutFlow } from './autoLayout'
 import { getDiagramView, updateDiagramAtPath } from './diagramNavigation'
 import {
+  getEngineApiKey,
   getProvider,
   loadAiSettings,
   type AiProviderId,
@@ -121,7 +122,7 @@ export async function generateArchitectureFromPrompt(
         context,
         provider,
         images: images?.map((image) => ({ mimeType: image.mimeType, dataUrl: image.dataUrl })),
-        apiKey: settings.keys[provider],
+        apiKey: getEngineApiKey(provider),
         azureEndpoint: settings.azureEndpoint,
         azureDeployment: settings.azureDeployment,
       }),

@@ -7,6 +7,7 @@ export type FreehandDrawingTool =
   | 'rectangle'
   | 'arrow'
   | 'text'
+  | 'image'
   | 'eraser'
 
 /** Shape tools place resizable, connectable shape nodes on the canvas */
@@ -48,7 +49,7 @@ export function shapeKindFromTool(
     | 'parallelogram'
 }
 
-export type DrawingElementType = 'path' | 'line' | 'rectangle' | 'arrow' | 'text'
+export type DrawingElementType = 'path' | 'line' | 'rectangle' | 'arrow' | 'text' | 'image'
 
 export interface DrawingPoint {
   x: number
@@ -64,6 +65,11 @@ export interface DrawingElement {
   fill?: string
   text?: string
   fontSize?: number
+  fontFamily?: string
+  fontWeight?: string
+  fontStyle?: 'normal' | 'italic'
+  /** data:image URL for type === 'image' */
+  imageHref?: string
 }
 
 export interface SubDiagram {
@@ -77,6 +83,7 @@ export interface SubDiagram {
 export interface DiagramPathSegment {
   systemId: string
   label: string
+  kind?: 'system' | 'integration'
 }
 
 export type DiagramPath = DiagramPathSegment[]

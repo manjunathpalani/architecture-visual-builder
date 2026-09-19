@@ -1,10 +1,12 @@
 import {
   ArrowRight,
+  BoxSelect,
   Circle,
   Cylinder,
   Diamond,
   Eraser,
   Hexagon,
+  ImagePlus,
   Minus,
   MousePointer2,
   Pencil,
@@ -25,6 +27,7 @@ export const FREEHAND_TOOLS: { id: DrawingTool; icon: typeof Pencil; label: stri
   { id: 'rectangle', icon: Square, label: 'Freehand rectangle' },
   { id: 'arrow', icon: ArrowRight, label: 'Arrow' },
   { id: 'text', icon: Type, label: 'Text' },
+  { id: 'image', icon: ImagePlus, label: 'Image' },
   { id: 'eraser', icon: Eraser, label: 'Eraser' },
 ]
 
@@ -44,6 +47,8 @@ interface DrawingToolbarProps {
   onSelectTool: (tool: DrawingTool) => void
   drawColor: string
   onSelectColor: (color: string) => void
+  onSelectAllDrawings?: () => void
+  selectedDrawingCount?: number
 }
 
 export function DrawingToolbar({
@@ -51,6 +56,8 @@ export function DrawingToolbar({
   onSelectTool,
   drawColor,
   onSelectColor,
+  onSelectAllDrawings,
+  selectedDrawingCount = 0,
 }: DrawingToolbarProps) {
   return (
     <FloatingToolbar
@@ -85,6 +92,19 @@ export function DrawingToolbar({
           <Icon size={15} />
         </button>
       ))}
+      {onSelectAllDrawings && (
+        <>
+          <span className="drawing-toolbar-divider" />
+          <button
+            type="button"
+            className={`drawing-tool-btn ${selectedDrawingCount > 0 ? 'active' : ''}`}
+            title="Select every drawing so you can change font and colour together"
+            onClick={onSelectAllDrawings}
+          >
+            <BoxSelect size={15} />
+          </button>
+        </>
+      )}
       <span className="drawing-toolbar-divider" />
       <span className="drawing-toolbar-label">Colour</span>
       <div className="drawing-color-row">

@@ -4,9 +4,9 @@ import type { IntegrationNodeData } from '../../utils/jsonIO'
 import { getNodeColor, parseNodeDisplay } from '../../utils/nodeStyle'
 import { ServiceIcon, getServiceIconFromLabel } from '../icons/ServiceIcons'
 import { CodeLinkBadge } from '../CodeLinkBadge'
+import { FileCode } from 'lucide-react'
 import { WorkItemBadge } from '../WorkItemBadge'
 import { SubDiagramBadge } from '../SubDiagramBadge'
-import { InterfaceSpecViewer } from '../InterfaceSpecViewer'
 import { isApiNode, nodeHasInterfaceSpec } from '../../utils/apiComponent'
 import { getSpecFromProperties } from '../../types/interfaceSpec'
 import { useState } from 'react'
@@ -98,14 +98,17 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
           </div>
         </div>
         {showApiSpec && spec && (
-          <div
-            className="node-api-spec"
-            onClick={() => setShowSpecModal(true)}
-            onKeyDown={(e) => e.key === 'Enter' && setShowSpecModal(true)}
-            role="button"
-            tabIndex={0}
-          >
-            <InterfaceSpecViewer spec={spec} compact maxEndpoints={3} />
+          <div className="node-api-spec">
+            <button
+              type="button"
+              className="node-api-spec-btn"
+              onClick={() => setShowSpecModal(true)}
+              aria-label="View API"
+              title="View API"
+            >
+              <FileCode size={14} />
+              <span className="node-api-spec-label">API</span>
+            </button>
           </div>
         )}
         <div className="node-footer">

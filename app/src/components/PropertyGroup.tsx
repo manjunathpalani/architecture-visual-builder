@@ -12,6 +12,7 @@ export type PropertyGroupId =
   | 'feature'
   | 'structure'
   | 'line'
+  | 'sequence'
   | 'spec'
 
 export const SYSTEM_PROPERTY_GROUPS: PropertyGroupId[] = [
@@ -24,7 +25,7 @@ export const SYSTEM_PROPERTY_GROUPS: PropertyGroupId[] = [
   'structure',
 ]
 
-export const EDGE_PROPERTY_GROUPS: PropertyGroupId[] = ['identity', 'line', 'spec']
+export const EDGE_PROPERTY_GROUPS: PropertyGroupId[] = ['identity', 'line', 'sequence', 'spec']
 
 const DEFAULT_OPEN: PropertyGroupId[] = ['identity', 'line', 'state', 'feature']
 

@@ -1,4 +1,6 @@
-export type AiProviderId = 'spacexai' | 'openai' | 'anthropic' | 'gemini' | 'azure-openai'
+import { isVsCodeHost } from './vscodeHost'
+
+export type AiProviderId = 'spacexai' | 'openai' | 'anthropic' | 'gemini' | 'azure-openai' | 'copilot'
 
 export interface AiProviderInfo {
   id: AiProviderId
@@ -111,6 +113,18 @@ export const AI_PROVIDERS: AiProviderInfo[] = [
       { id: 'deployment', label: 'Deployment name', placeholder: 'gpt-4o' },
     ],
   },
+  {
+    id: 'copilot',
+    label: 'GitHub Copilot',
+    shortLabel: 'Copilot',
+    description:
+      'Uses signed-in GitHub Copilot inside VS Code (no key). In the browser, paste a GitHub token with Copilot or GitHub Models access.',
+    keyLabel: 'GitHub token',
+    keyPlaceholder: 'ghp_… or github_pat_… (optional in VS Code)',
+    keyUrl: 'https://github.com/settings/tokens',
+    envKey: 'GITHUB_TOKEN',
+    defaultModel: 'openai/gpt-4o',
+  },
 ]
 
 export function getProvider(id: AiProviderId): AiProviderInfo {
@@ -169,4 +183,27 @@ export function updateAiSettings(patch: Partial<StoredAiSettings>) {
 export function countSavedKeys(): number {
   const settings = loadAiSettings()
   return Object.values(settings.keys).filter((value) => Boolean(value?.trim())).length
+}
+
+export function getEngineApiKey(id: AiProviderId): string {
+  const pasted = getUserProviderKey(id)
+  if (pasted) return pasted
+  if (id === 'copilot') {
+    try {
+      const raw = localStorage.getItem('architecture-visual-builder-git')
+      if (!raw) return ''
+      const parsed = JSON.parse(raw) as { github?: { token?: string } }
+      return parsed.github?.token?.trim() ?? ''
+    } catch {
+      return ''
+    }
+  }
+  return ''
+}
+
+export function isEngineReady(id: AiProviderId, status?: AiStatus | null): boolean {
+  if (getEngineApiKey(id)) return true
+  if (status?.providers.find((item) => item.id === id)?.configured) return true
+  if (id === 'copilot' && isVsCodeHost()) return true
+  return false
 }

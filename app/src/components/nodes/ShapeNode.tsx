@@ -207,6 +207,11 @@ export function ShapeNode({ id, data, selected }: NodeProps) {
       >
         <svg className="shape-node-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
           <ShapeGeometry kind={kind} color={color} fill={fill} selected={!!selected} />
+          <path
+            className="shape-hit-frame"
+            d="M 1 1 h 98 v 98 h -98 z M 10 10 v 80 h 80 v -80 z"
+            fillRule="evenodd"
+          />
         </svg>
         {editing ? (
           <textarea

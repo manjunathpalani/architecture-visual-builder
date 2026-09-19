@@ -1,6 +1,6 @@
 import type { Edge, Node } from '@xyflow/react'
 import type { ArchitectureDocument, Integration, SystemNode } from '../types'
-import type { DiagramPath, DiagramView, DrawingElement } from '../types/diagram'
+import type { DiagramPath, DiagramView, DrawingElement, SubDiagram } from '../types/diagram'
 import {
   documentToFlow,
   flowToDocument,
@@ -29,8 +29,7 @@ export function canDrillInto(system: SystemNode): boolean {
   return system.type !== 'note' && system.type !== 'group' && system.type !== 'shape'
 }
 
-export function hasSubDiagram(system: SystemNode): boolean {
-  const sub = system.subDiagram
+export function hasSubDiagramContent(sub?: SubDiagram | null): boolean {
   if (!sub) return false
   return (
     sub.systems.length > 0 ||
@@ -39,7 +38,15 @@ export function hasSubDiagram(system: SystemNode): boolean {
   )
 }
 
-export function getSubDiagramStats(system: SystemNode): {
+export function hasSubDiagram(system: SystemNode): boolean {
+  return hasSubDiagramContent(system.subDiagram)
+}
+
+export function isIntegrationPath(segment?: { kind?: string }): boolean {
+  return segment?.kind === 'integration'
+}
+
+export function getSubDiagramStats(system: { subDiagram?: SubDiagram | null }): {
   systems: number
   integrations: number
 } {
@@ -47,6 +54,66 @@ export function getSubDiagramStats(system: SystemNode): {
     systems: system.subDiagram?.systems.length ?? 0,
     integrations: system.subDiagram?.integrations.length ?? 0,
   }
+}
+
+type DiagramContainer = {
+  systems: SystemNode[]
+  integrations: Integration[]
+  drawings: DrawingElement[]
+}
+
+function rootContainer(doc: ArchitectureDocument): DiagramContainer {
+  return {
+    systems: doc.systems,
+    integrations: doc.integrations,
+    drawings: doc.drawings ?? [],
+  }
+}
+
+function childSubDiagram(container: DiagramContainer, segment: DiagramPath[number]): SubDiagram | undefined {
+  if (isIntegrationPath(segment)) {
+    return container.integrations.find((item) => item.id === segment.systemId)?.subDiagram
+  }
+  return container.systems.find((item) => item.id === segment.systemId)?.subDiagram
+}
+
+function setChildSubDiagram(
+  container: DiagramContainer,
+  segment: DiagramPath[number],
+  subDiagram: SubDiagram,
+): DiagramContainer {
+  if (isIntegrationPath(segment)) {
+    return {
+      ...container,
+      integrations: container.integrations.map((item) =>
+        item.id === segment.systemId ? { ...item, subDiagram } : item,
+      ),
+    }
+  }
+  return {
+    ...container,
+    systems: container.systems.map((item) =>
+      item.id === segment.systemId ? { ...item, subDiagram } : item,
+    ),
+  }
+}
+
+function mergeIntegrationsPreservingNested(
+  incoming: Integration[],
+  existing: Integration[],
+): Integration[] {
+  const previous = new Map(existing.map((item) => [item.id, item]))
+  return incoming.map((item) => {
+    const old = previous.get(item.id)
+    if (!old) return item
+    return {
+      ...item,
+      sequenceFlow: item.sequenceFlow ?? old.sequenceFlow,
+      subDiagram: Object.prototype.hasOwnProperty.call(item, 'subDiagram')
+        ? item.subDiagram
+        : old.subDiagram,
+    }
+  })
 }
 
 export function getDiagramView(doc: ArchitectureDocument, path: DiagramPath): DiagramView {
@@ -60,42 +127,36 @@ export function getDiagramView(doc: ArchitectureDocument, path: DiagramPath): Di
     }
   }
 
-  let systems = doc.systems
-  let parent: SystemNode | undefined
+  let container = rootContainer(doc)
+  let parentLabel = path[path.length - 1]?.label
 
   for (const segment of path) {
-    parent = systems.find((s) => s.id === segment.systemId)
-    if (!parent) {
+    const sub = childSubDiagram(container, segment)
+    parentLabel = segment.label
+    if (!sub) {
       return {
         systems: [],
         integrations: [],
         drawings: [],
         level: 'sub',
         parentPath: path,
-        parentLabel: segment.label,
+        parentLabel,
       }
     }
-    if (!parent.subDiagram) {
-      return {
-        systems: [],
-        integrations: [],
-        drawings: [],
-        level: 'sub',
-        parentPath: path,
-        parentLabel: parent.label,
-      }
+    container = {
+      systems: sub.systems,
+      integrations: sub.integrations,
+      drawings: sub.drawings ?? [],
     }
-    systems = parent.subDiagram.systems
   }
 
-  const sub = parent!.subDiagram!
   return {
-    systems: sub.systems,
-    integrations: sub.integrations,
-    drawings: sub.drawings ?? [],
+    systems: container.systems,
+    integrations: container.integrations,
+    drawings: container.drawings,
     level: 'sub',
     parentPath: path,
-    parentLabel: parent!.label,
+    parentLabel,
   }
 }
 
@@ -110,45 +171,46 @@ export function updateDiagramAtPath(
     return {
       ...doc,
       systems: mergeSystemsPreservingSubDiagrams(systems, doc.systems),
-      integrations,
+      integrations: mergeIntegrationsPreservingNested(integrations, doc.integrations),
       drawings: drawings ?? doc.drawings ?? [],
     }
   }
 
-  const updateNested = (
-    currentSystems: SystemNode[],
-    pathIndex: number,
-  ): SystemNode[] => {
-    const segment = path[pathIndex]
-    return currentSystems.map((s) => {
-      if (s.id !== segment.systemId) return s
-
-      if (pathIndex === path.length - 1) {
-        const existing = s.subDiagram?.systems ?? []
-        return {
-          ...s,
-          subDiagram: {
-            name: s.subDiagram?.name ?? s.label,
-            description: s.subDiagram?.description,
-            systems: mergeSystemsPreservingSubDiagrams(systems, existing),
-            integrations,
-            drawings: drawings ?? s.subDiagram?.drawings ?? [],
-          },
-        }
+  const apply = (container: DiagramContainer, index: number): DiagramContainer => {
+    const segment = path[index]
+    const existing = childSubDiagram(container, segment)
+    if (index === path.length - 1) {
+      const nextSub: SubDiagram = {
+        name: existing?.name ?? segment.label,
+        description: existing?.description,
+        systems: mergeSystemsPreservingSubDiagrams(systems, existing?.systems ?? []),
+        integrations: mergeIntegrationsPreservingNested(integrations, existing?.integrations ?? []),
+        drawings: drawings ?? existing?.drawings ?? [],
       }
-
-      const sub = s.subDiagram ?? { systems: [], integrations: [] }
-      return {
-        ...s,
-        subDiagram: {
-          ...sub,
-          systems: updateNested(sub.systems, pathIndex + 1),
-        },
-      }
+      return setChildSubDiagram(container, segment, nextSub)
+    }
+    const child: DiagramContainer = {
+      systems: existing?.systems ?? [],
+      integrations: existing?.integrations ?? [],
+      drawings: existing?.drawings ?? [],
+    }
+    const updated = apply(child, index + 1)
+    return setChildSubDiagram(container, segment, {
+      name: existing?.name ?? segment.label,
+      description: existing?.description,
+      systems: updated.systems,
+      integrations: updated.integrations,
+      drawings: updated.drawings,
     })
   }
 
-  return { ...doc, systems: updateNested(doc.systems, 0) }
+  const root = apply(rootContainer(doc), 0)
+  return {
+    ...doc,
+    systems: root.systems,
+    integrations: root.integrations,
+    drawings: root.drawings,
+  }
 }
 
 export function ensureSubDiagram(
@@ -166,6 +228,24 @@ export function ensureSubDiagram(
       : s,
   )
   return updateDiagramAtPath(doc, path, updatedSystems, view.integrations)
+}
+
+export function ensureIntegrationSubDiagram(
+  doc: ArchitectureDocument,
+  path: DiagramPath,
+  integrationId: string,
+): ArchitectureDocument {
+  const view = getDiagramView(doc, path)
+  const integration = view.integrations.find((item) => item.id === integrationId)
+  if (!integration || integration.subDiagram) return doc
+  return updateIntegrationInView(doc, path, integrationId, (current) => ({
+    ...current,
+    subDiagram: {
+      name: `${current.label} sequence`,
+      systems: [],
+      integrations: [],
+    },
+  }))
 }
 
 export function findSystemAtPath(
@@ -218,17 +298,40 @@ export function listSubTabs(doc: ArchitectureDocument, currentPath: DiagramPath)
     })
   }
 
+  for (const integration of doc.integrations) {
+    if (!hasSubDiagramContent(integration.subDiagram)) continue
+    tabs.push({
+      id: integration.id,
+      name: `${integration.label} sequence`,
+      path: [{ systemId: integration.id, label: integration.label, kind: 'integration' }],
+      kind: 'sub',
+      stats: getSubDiagramStats(integration),
+    })
+  }
+
   if (currentPath.length > 0) {
-    const currentId = currentPath[currentPath.length - 1].systemId
-    if (!tabs.some((tab) => tab.id === currentId)) {
-      const current = findSystemAtPath(doc, currentPath.slice(0, -1), currentId)
-      tabs.push({
-        id: currentId,
-        name: currentPath[currentPath.length - 1].label,
-        path: currentPath,
-        kind: 'sub',
-        stats: current ? getSubDiagramStats(current) : undefined,
-      })
+    const segment = currentPath[currentPath.length - 1]
+    if (!tabs.some((tab) => tab.id === segment.systemId)) {
+      if (isIntegrationPath(segment)) {
+        const parentView = getDiagramView(doc, currentPath.slice(0, -1))
+        const integration = parentView.integrations.find((item) => item.id === segment.systemId)
+        tabs.push({
+          id: segment.systemId,
+          name: `${segment.label} sequence`,
+          path: currentPath,
+          kind: 'sub',
+          stats: integration ? getSubDiagramStats(integration) : undefined,
+        })
+      } else {
+        const current = findSystemAtPath(doc, currentPath.slice(0, -1), segment.systemId)
+        tabs.push({
+          id: segment.systemId,
+          name: segment.label,
+          path: currentPath,
+          kind: 'sub',
+          stats: current ? getSubDiagramStats(current) : undefined,
+        })
+      }
     }
   }
 
@@ -241,15 +344,21 @@ export function removeSubTab(
 ): ArchitectureDocument {
   if (tabPath.length === 0) return doc
   const parentPath = tabPath.slice(0, -1)
-  const systemId = tabPath[tabPath.length - 1].systemId
-  const system = findSystemAtPath(doc, parentPath, systemId)
+  const segment = tabPath[tabPath.length - 1]
+  if (isIntegrationPath(segment)) {
+    return updateIntegrationInView(doc, parentPath, segment.systemId, (current) => ({
+      ...current,
+      subDiagram: undefined,
+    }))
+  }
+  const system = findSystemAtPath(doc, parentPath, segment.systemId)
   if (!system) return doc
 
   if (system.properties?.subTab === 'template') {
-    return deleteSystemInView(doc, parentPath, systemId)
+    return deleteSystemInView(doc, parentPath, segment.systemId)
   }
 
-  return updateSystemInView(doc, parentPath, systemId, (current) => ({
+  return updateSystemInView(doc, parentPath, segment.systemId, (current) => ({
     ...current,
     subDiagram: undefined,
   }))
@@ -318,8 +427,15 @@ export function renameSystemAtPath(
     }
   }
   const parentPath = path.slice(0, -1)
-  const systemId = path[path.length - 1].systemId
-  return updateSystemInView(doc, parentPath, systemId, (system) => ({
+  const segment = path[path.length - 1]
+  if (isIntegrationPath(segment)) {
+    return updateIntegrationInView(doc, parentPath, segment.systemId, (integration) => ({
+      ...integration,
+      label: name,
+      subDiagram: integration.subDiagram ? { ...integration.subDiagram, name } : integration.subDiagram,
+    }))
+  }
+  return updateSystemInView(doc, parentPath, segment.systemId, (system) => ({
     ...system,
     label: name,
     subDiagram: system.subDiagram ? { ...system.subDiagram, name } : system.subDiagram,

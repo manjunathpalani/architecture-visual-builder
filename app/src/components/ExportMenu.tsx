@@ -58,7 +58,7 @@ export function ExportMenu({ exporting, onExportJson, onExportPptx, onExportDocx
             <FileText size={15} />
             <span>
               <strong>Word SAD document</strong>
-              <em>Solution Architecture Document</em>
+              <em>SAD with NFRs, nested diagrams, and sequence flows</em>
             </span>
           </button>
         </div>

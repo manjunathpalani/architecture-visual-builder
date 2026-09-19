@@ -346,6 +346,25 @@ export function CanvasSidePanel({
                 </button>
               ))}
             </div>
+            <p className="flow-scope-label">Line animation</p>
+            <div className="canvas-side-tools">
+              <button
+                type="button"
+                className={`flow-color-btn ${flowStyle.lineAnimation !== false ? 'active' : ''}`}
+                title="Show moving dots on integration lines"
+                onClick={() => onFlowStyle({ lineAnimation: true })}
+              >
+                On
+              </button>
+              <button
+                type="button"
+                className={`flow-color-btn ${flowStyle.lineAnimation === false ? 'active' : ''}`}
+                title="Hide moving dots on every integration line"
+                onClick={() => onFlowStyle({ lineAnimation: false })}
+              >
+                Off
+              </button>
+            </div>
             <p className="flow-scope-label">When a component is selected</p>
             <div className="canvas-side-tools">
               {([

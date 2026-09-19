@@ -24,6 +24,9 @@ interface WebviewMessage {
   path?: string
   apply?: boolean
   changeKind?: 'new' | 'update' | 'retire'
+  scope?: 'feature' | 'story' | 'component'
+  featureTitle?: string
+  storyTitle?: string
   body?: Record<string, unknown>
 }
 
@@ -131,6 +134,9 @@ export class BuilderEditorProvider implements vscode.CustomTextEditorProvider {
             gitRepo: message.gitRepo,
             apply: message.apply,
             changeKind: message.changeKind,
+            scope: message.scope,
+            featureTitle: message.featureTitle,
+            storyTitle: message.storyTitle,
           })
           return
         case 'openPath':

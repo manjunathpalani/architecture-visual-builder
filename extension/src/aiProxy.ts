@@ -1,11 +1,19 @@
 import {
+  ANALYSIS_SYSTEM_PROMPT,
+  INSTRUCTION_SYSTEM_PROMPT,
+  REQUIREMENTS_SYSTEM_PROMPT,
+  SAD_SYSTEM_PROMPT,
+  SYSTEM_PROMPT,
   completeAnalysis,
   completeDiagram,
   completeInstruction,
   completeRequirements,
+  completeSad,
   verifyProviderKey,
   type AiProviderId,
+  type EngineRequest,
 } from './aiEngines'
+import { completeViaVsCodeLm, isCopilotLanguageModelAvailable } from './agent'
 
 const PROVIDERS: Array<{
   id: AiProviderId
@@ -26,6 +34,7 @@ const PROVIDERS: Array<{
     envModel: 'AZURE_OPENAI_DEPLOYMENT',
     defaultModel: 'gpt-4o',
   },
+  { id: 'copilot', label: 'GitHub Copilot', envKey: 'GITHUB_TOKEN', envModel: 'COPILOT_MODEL', defaultModel: 'openai/gpt-4o' },
 ]
 
 const PROVIDER_IDS = new Set(PROVIDERS.map((provider) => provider.id))
@@ -40,7 +49,7 @@ export async function handleAiApi(path: string, body?: Record<string, unknown>):
   try {
     switch (route) {
       case 'status':
-        return handleStatus()
+        return await handleStatus()
       case 'verify':
         return handleVerify(body ?? {})
       case 'diagram':
@@ -51,6 +60,8 @@ export async function handleAiApi(path: string, body?: Record<string, unknown>):
         return handleInstruct(body ?? {})
       case 'requirements':
         return handleRequirements(body ?? {})
+      case 'sad':
+        return handleSad(body ?? {})
       default:
         return { status: 404, payload: { error: `Unknown AI route: ${path}` } }
     }
@@ -67,7 +78,8 @@ function envValue(name: string): string {
   return (process.env[name] ?? '').trim()
 }
 
-function handleStatus(): AiApiResult {
+async function handleStatus(): Promise<AiApiResult> {
+  const copilotReady = await isCopilotLanguageModelAvailable()
   return {
     status: 200,
     payload: {
@@ -78,12 +90,18 @@ function handleStatus(): AiApiResult {
         label: provider.label,
         model: envValue(provider.envModel ?? '') || provider.defaultModel,
         configured: Boolean(
-          envValue(provider.envKey) || (provider.id === 'gemini' ? envValue('GOOGLE_API_KEY') : ''),
+          envValue(provider.envKey) ||
+            (provider.id === 'gemini' ? envValue('GOOGLE_API_KEY') : '') ||
+            (provider.id === 'copilot' && (copilotReady || githubToken())),
         ),
         recommended: provider.recommended,
       })),
     },
   }
+}
+
+function githubToken(): string {
+  return envValue('GITHUB_COPILOT_TOKEN') || envValue('GITHUB_TOKEN') || envValue('GH_TOKEN')
 }
 
 function resolveProvider(raw: unknown): { id: AiProviderId; label: string; defaultModel: string; envKey: string; envModel?: string } | null {
@@ -97,7 +115,28 @@ function resolveApiKey(provider: { id: AiProviderId; envKey: string }, provided?
   const pasted = typeof provided === 'string' ? provided.trim() : ''
   if (pasted) return pasted
   if (!useServer) return ''
+  if (provider.id === 'copilot') return githubToken()
   return envValue(provider.envKey) || (provider.id === 'gemini' ? envValue('GOOGLE_API_KEY') : '')
+}
+
+async function completeCopilotInVsCode(request: {
+  provider: AiProviderId
+  prompt: string
+  context?: string
+  images?: EngineRequest['images']
+  systemPrompt: string
+}): Promise<string | null> {
+  if (request.provider !== 'copilot') return null
+  if (request.images?.length) return null
+  try {
+    return await completeViaVsCodeLm({
+      systemPrompt: request.systemPrompt,
+      prompt: request.prompt,
+      context: request.context,
+    })
+  } catch {
+    return null
+  }
 }
 
 async function handleVerify(body: Record<string, unknown>): Promise<AiApiResult> {
@@ -105,13 +144,29 @@ async function handleVerify(body: Record<string, unknown>): Promise<AiApiResult>
   if (!provider) return { status: 400, payload: { ok: false, error: 'Unknown AI engine' } }
 
   const provided = typeof body.apiKey === 'string' ? body.apiKey.trim() : ''
-  const apiKey = resolveApiKey(provider, body.apiKey, Boolean(body.useServer))
+  const apiKey = resolveApiKey(provider, body.apiKey, Boolean(body.useServer) || provider.id === 'copilot')
+  if (provider.id === 'copilot' && !provided) {
+    if (await isCopilotLanguageModelAvailable()) {
+      return {
+        status: 200,
+        payload: {
+          ok: true,
+          message: 'Verified · GitHub Copilot is signed in to this VS Code window',
+          provider: provider.id,
+          source: 'server',
+        },
+      }
+    }
+  }
   if (!apiKey) {
     return {
       status: 400,
       payload: {
         ok: false,
-        error: `No ${provider.label} key to test. Paste a key in AI Engines.`,
+        error:
+          provider.id === 'copilot'
+            ? 'Sign in to GitHub Copilot in VS Code, or paste a GitHub token in AI Engines.'
+            : `No ${provider.label} key to test. Paste a key in AI Engines.`,
       },
     }
   }
@@ -147,12 +202,18 @@ async function handleDiagram(body: Record<string, unknown>): Promise<AiApiResult
     return { status: 400, payload: { error: 'Prompt is too long (max 8000 characters)' } }
   }
 
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context: stringField(body.context) || undefined,
+    images,
+    systemPrompt: SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
   const apiKey = resolveApiKey(provider, body.apiKey)
   if (!apiKey) {
-    return {
-      status: 401,
-      payload: { error: `No ${provider.label} key configured. Paste a key in Settings → AI engines.` },
-    }
+    return missingCopilotOrKey(provider, Boolean(images.length))
   }
 
   const text = await completeDiagram({
@@ -177,12 +238,18 @@ async function handleAnalyze(body: Record<string, unknown>): Promise<AiApiResult
     return { status: 400, payload: { error: 'Add systems to the canvas before running capability analysis.' } }
   }
 
+  const prompt = (stringField(body.prompt) || 'Analyze this architecture as enterprise capabilities. Show pros and cons.').slice(0, 4000)
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context,
+    systemPrompt: ANALYSIS_SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
   const apiKey = resolveApiKey(provider, body.apiKey)
   if (!apiKey) {
-    return {
-      status: 401,
-      payload: { error: `No ${provider.label} key configured. Paste a key in Settings → AI engines.` },
-    }
+    return missingCopilotOrKey(provider)
   }
 
   const text = await completeAnalysis({
@@ -206,12 +273,21 @@ async function handleInstruct(body: Record<string, unknown>): Promise<AiApiResul
     return { status: 400, payload: { error: 'Add a component and design context before generating an instruction.' } }
   }
 
+  const prompt = (
+    stringField(body.prompt) ||
+    'Write a self-contained coding-agent instruction for this component, including code path, where to add, and where to update.'
+  ).slice(0, 4000)
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context,
+    systemPrompt: INSTRUCTION_SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
   const apiKey = resolveApiKey(provider, body.apiKey)
   if (!apiKey) {
-    return {
-      status: 401,
-      payload: { error: `No ${provider.label} key configured. Paste a key in Settings → AI engines.` },
-    }
+    return missingCopilotOrKey(provider)
   }
 
   const text = await completeInstruction({
@@ -238,12 +314,21 @@ async function handleRequirements(body: Record<string, unknown>): Promise<AiApiR
     return { status: 400, payload: { error: 'Add a feature definition or architecture context before generating requirements.' } }
   }
 
+  const prompt = (
+    stringField(body.prompt) ||
+    'Write functional and non-functional requirements for this feature.'
+  ).slice(0, 4000)
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context,
+    systemPrompt: REQUIREMENTS_SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
   const apiKey = resolveApiKey(provider, body.apiKey)
   if (!apiKey) {
-    return {
-      status: 401,
-      payload: { error: `No ${provider.label} key configured. Paste a key in Settings → AI engines.` },
-    }
+    return missingCopilotOrKey(provider)
   }
 
   const text = await completeRequirements({
@@ -259,6 +344,64 @@ async function handleRequirements(body: Record<string, unknown>): Promise<AiApiR
     azureDeployment: stringField(body.azureDeployment) || envValue('AZURE_OPENAI_DEPLOYMENT'),
   })
   return { status: 200, payload: { text, provider: provider.id } }
+}
+
+async function handleSad(body: Record<string, unknown>): Promise<AiApiResult> {
+  const provider = resolveProvider(body.provider)
+  if (!provider) return { status: 400, payload: { error: 'Unknown AI engine' } }
+
+  const context = stringField(body.context)
+  if (!context) {
+    return { status: 400, payload: { error: 'Add systems to the canvas before writing a SAD.' } }
+  }
+
+  const prompt = (
+    stringField(body.prompt) ||
+    'Write SAD narrative, non-functional requirements, and sequence flows for every diagram including nested views.'
+  ).slice(0, 4000)
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context,
+    systemPrompt: SAD_SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
+  const apiKey = resolveApiKey(provider, body.apiKey)
+  if (!apiKey) {
+    return missingCopilotOrKey(provider)
+  }
+
+  const text = await completeSad({
+    provider: provider.id,
+    prompt: (
+      stringField(body.prompt) ||
+      'Write SAD narrative, non-functional requirements, and sequence flows for every diagram including nested views.'
+    ).slice(0, 4000),
+    context,
+    apiKey,
+    model: stringField(body.model) || envValue(provider.envModel ?? '') || provider.defaultModel,
+    azureEndpoint: stringField(body.azureEndpoint) || envValue('AZURE_OPENAI_ENDPOINT'),
+    azureDeployment: stringField(body.azureDeployment) || envValue('AZURE_OPENAI_DEPLOYMENT'),
+  })
+  return { status: 200, payload: { text, provider: provider.id } }
+}
+
+function missingCopilotOrKey(
+  provider: { id: AiProviderId; label: string },
+  images = false,
+): AiApiResult {
+  return {
+    status: 401,
+    payload: {
+      error:
+        provider.id === 'copilot'
+          ? images
+            ? 'Screenshot-to-diagram with Copilot needs a GitHub token. Sign-in Copilot in VS Code works for text prompts; attach a token for images, or use SpaceXAI.'
+            : 'Sign in to GitHub Copilot in VS Code, or paste a GitHub token in Settings → AI engines.'
+          : `No ${provider.label} key configured. Paste a key in Settings → AI engines.`,
+    },
+  }
 }
 
 function stringField(value: unknown): string {

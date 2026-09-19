@@ -9,6 +9,9 @@ export interface AgentRunRequest {
   gitRepo?: string
   apply?: boolean
   changeKind?: 'new' | 'update' | 'retire'
+  scope?: 'feature' | 'story' | 'component'
+  featureTitle?: string
+  storyTitle?: string
 }
 
 export function emptyArchitectureJson(name: string): string {
@@ -28,16 +31,40 @@ export function emptyArchitectureJson(name: string): string {
   )
 }
 
+export async function isCopilotLanguageModelAvailable(): Promise<boolean> {
+  try {
+    const copilot = await vscode.lm.selectChatModels({ vendor: 'copilot' })
+    if (copilot[0]) return true
+    const any = await vscode.lm.selectChatModels()
+    return Boolean(any[0])
+  } catch {
+    return false
+  }
+}
+
 export async function generateWithLanguageModel(prompt: string, context: string): Promise<string> {
+  return completeViaVsCodeLm({ prompt, context })
+}
+
+export async function completeViaVsCodeLm(options: {
+  systemPrompt?: string
+  prompt: string
+  context?: string
+}): Promise<string> {
   const copilot = await vscode.lm.selectChatModels({ vendor: 'copilot' })
   const model = copilot[0] ?? (await vscode.lm.selectChatModels())[0]
   if (!model) {
     throw new Error(
-      'No VS Code language model is available. Sign in to GitHub Copilot or enable a chat model.',
+      'GitHub Copilot is not available in this VS Code window. Sign in to GitHub Copilot (Accounts menu) and try again.',
     )
   }
+  const parts = [
+    options.systemPrompt?.trim(),
+    options.context?.trim() ? `Existing architecture context:\n${options.context.trim()}` : '',
+    options.prompt.trim(),
+  ].filter(Boolean)
   const response = await model.sendRequest(
-    [vscode.LanguageModelChatMessage.User(`${prompt}\n\n${context}`)],
+    [vscode.LanguageModelChatMessage.User(parts.join('\n\n'))],
     {},
     new vscode.CancellationTokenSource().token,
   )
@@ -45,17 +72,30 @@ export async function generateWithLanguageModel(prompt: string, context: string)
   for await (const chunk of response.text) {
     text += chunk
   }
-  return text.trim()
+  const trimmed = text.trim()
+  if (!trimmed) {
+    throw new Error('GitHub Copilot returned an empty response. Try a more specific prompt.')
+  }
+  return trimmed
 }
 
 export async function runLinkedAgent(request: AgentRunRequest): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0]
+  const scope = request.scope ?? 'component'
+  const fileName =
+    scope === 'feature' ? 'apply-feature.md' : scope === 'story' ? 'apply-story.md' : request.apply ? 'apply-task.md' : 'agent-task.md'
   if (folder) {
     const dir = vscode.Uri.joinPath(folder.uri, '.avb')
     await vscode.workspace.fs.createDirectory(dir)
-    const file = vscode.Uri.joinPath(dir, request.apply ? 'apply-task.md' : 'agent-task.md')
+    const file = vscode.Uri.joinPath(dir, fileName)
     const kind = request.changeKind ? request.changeKind.toUpperCase() : 'UPDATE'
-    const body = `# ${request.apply ? 'APPLY' : 'Implement'} ${kind}: ${request.systemLabel}\n\n${request.instruction}\n`
+    const heading =
+      scope === 'feature'
+        ? `${request.apply ? 'APPLY' : 'Implement'} FEATURE: ${request.featureTitle || request.systemLabel}`
+        : scope === 'story'
+          ? `${request.apply ? 'APPLY' : 'Implement'} USER STORY: ${request.storyTitle || request.systemLabel}`
+          : `${request.apply ? 'APPLY' : 'Implement'} ${kind}: ${request.systemLabel}`
+    const body = `# ${heading}\n\n${request.instruction}\n`
     await vscode.workspace.fs.writeFile(file, Buffer.from(body, 'utf8'))
     await vscode.window.showTextDocument(file, {
       preview: true,
@@ -71,10 +111,18 @@ export async function runLinkedAgent(request: AgentRunRequest): Promise<void> {
     request.apply
       ? 'APPLY these architecture-driven code changes now. Edit files. Do not stop at a plan.'
       : 'Implement this architecture change in the current workspace.',
-    request.changeKind ? `Change type: ${request.changeKind.toUpperCase()} (new = create, update = modify, retire = remove).` : '',
+    scope === 'feature'
+      ? `This is a feature pack. Honor the feature definition and every user story.`
+      : scope === 'story'
+        ? `This is one user story inside feature "${request.featureTitle || 'the feature'}". Honor that story and its linked components only.`
+        : request.changeKind
+          ? `Change type: ${request.changeKind.toUpperCase()} (new = create, update = modify, retire = remove).`
+          : '',
+    request.featureTitle ? `Feature: ${request.featureTitle}.` : '',
+    request.storyTitle ? `User story: ${request.storyTitle}.` : '',
     request.gitPath ? `Stay scoped to ${request.gitPath}.` : '',
     request.gitRepo ? `Linked repository: ${request.gitRepo}.` : '',
-    folder ? `The full instruction is also in .avb/${request.apply ? 'apply-task.md' : 'agent-task.md'}.` : '',
+    folder ? `The full instruction is also in .avb/${fileName}.` : '',
     '',
     request.instruction,
   ]

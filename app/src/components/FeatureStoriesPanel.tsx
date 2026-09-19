@@ -1,9 +1,10 @@
-import { Loader2, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { Loader2, Play, Plus, Sparkles, Trash2 } from 'lucide-react'
 import type { FeatureUserStory, TechnicalChangeDesign } from '../types'
 import {
   assignSystemsToStory,
   createEmptyStory,
   removeStory,
+  tasksForStory,
   upsertStory,
   type DesignableSystem,
 } from '../utils/changeDesign'
@@ -13,9 +14,11 @@ interface FeatureStoriesPanelProps {
   draft: TechnicalChangeDesign
   focusStoryId?: string | null
   generatingId?: string | null
+  sendingId?: string | null
   onChange: (next: TechnicalChangeDesign) => void
   onFocusStory: (storyId: string) => void
   onGenerateStory?: (storyId: string) => void
+  onSendStory?: (storyId: string) => void
 }
 
 export function FeatureStoriesPanel({
@@ -23,9 +26,11 @@ export function FeatureStoriesPanel({
   draft,
   focusStoryId,
   generatingId,
+  sendingId,
   onChange,
   onFocusStory,
   onGenerateStory,
+  onSendStory,
 }: FeatureStoriesPanelProps) {
   const stories = draft.stories ?? []
   const selectedIds = new Set(draft.tasks.map((task) => task.systemId))
@@ -141,6 +146,21 @@ export function FeatureStoriesPanel({
                 onChange={(e) => patchStory(story, { nonFunctionalRequirements: e.target.value })}
               />
             </label>
+            {onSendStory && (
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={Boolean(sendingId) || tasksForStory(draft, story.id).length === 0}
+                title="Send this user story and its linked component instructions to a coding agent"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onSendStory(story.id)
+                }}
+              >
+                {sendingId === `story:${story.id}` ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
+                Send story to agent
+              </button>
+            )}
             <div className="change-design-story-links">
               <span>Linked components</span>
               {systems.length === 0 ? (

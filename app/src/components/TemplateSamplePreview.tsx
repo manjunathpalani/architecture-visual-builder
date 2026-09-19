@@ -15,6 +15,13 @@ export function TemplateSamplePreview({ id }: TemplateSamplePreviewProps) {
       {id === 'contextual' && <ContextualPreview />}
       {id === 'functional' && <FunctionalPreview />}
       {id === 'integration' && <IntegrationPreview />}
+      {id === 'int-api-led' && <InfraPreview accent="#6366f1" labels={['Channel', 'Experience', 'System']} />}
+      {id === 'int-hub-spoke' && <ContextualPreview />}
+      {id === 'int-event-driven' && <InfraPreview accent="#0ea5e9" labels={['Produce', 'Bus', 'Consume']} />}
+      {id === 'int-strangler' && <InfraPreview accent="#64748b" labels={['Router', 'New', 'Legacy']} />}
+      {id === 'int-saga' && <InfraPreview accent="#6366f1" labels={['API', 'Saga', 'Services']} />}
+      {id === 'int-bff' && <InfraPreview accent="#8b5cf6" labels={['Web', 'Mobile', 'Partner']} />}
+      {id === 'int-scatter-gather' && <InfraPreview accent="#f59e0b" labels={['Scatter', 'Vendors', 'Gather']} />}
       {id === 'banking' && <IndustryPreview accent="#1d4ed8" labels={['Channels', 'Core', 'Risk']} />}
       {id === 'healthcare' && <IndustryPreview accent="#0d9488" labels={['Clinical', 'Interop', 'RCM']} />}
       {id === 'insurance' && <IndustryPreview accent="#7c3aed" labels={['Policy', 'Claims', 'UW']} />}

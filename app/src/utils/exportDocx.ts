@@ -23,8 +23,15 @@ import {
   downloadBlob,
   type ArchitectureBrief,
   type IntegrationBrief,
+  type NfrBrief,
+  type SequenceFlowBrief,
   type SystemBrief,
 } from './architectureNarrative'
+
+export interface SadDiagramSet {
+  overview?: DiagramImage | null
+  views?: Array<{ key: string; title: string; image: DiagramImage }>
+}
 
 const PAGE_W = 12240
 const MARGIN = 1080
@@ -39,12 +46,19 @@ const LINE = 'E2E8F0'
 const border = { style: BorderStyle.SINGLE, size: 4, color: LINE }
 const borders = { top: border, bottom: border, left: border, right: border }
 
-export async function exportArchitectureDocx(brief: ArchitectureBrief, diagram?: DiagramImage | null) {
-  const blob = await buildArchitectureDocx(brief, diagram)
+export async function exportArchitectureDocx(
+  brief: ArchitectureBrief,
+  diagrams?: DiagramImage | SadDiagramSet | null,
+) {
+  const blob = await buildArchitectureDocx(brief, diagrams)
   downloadBlob(blob, `${brief.fileBase}-sad.docx`)
 }
 
-export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: DiagramImage | null): Promise<Blob> {
+export async function buildArchitectureDocx(
+  brief: ArchitectureBrief,
+  diagrams?: DiagramImage | SadDiagramSet | null,
+): Promise<Blob> {
+  const images = asSadDiagrams(diagrams)
   const children: (Paragraph | Table)[] = [
     new Paragraph({
       children: [
@@ -65,33 +79,30 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
     metaLine('Document generated', brief.generatedAt),
     metaLine(
       'Inventory',
-      `${brief.stats.systems} systems | ${brief.stats.integrations} integrations | ${brief.stats.apis} APIs`,
+      `${brief.stats.systems} systems | ${brief.stats.integrations} integrations | ${brief.stats.apis} APIs | ${brief.stats.subDiagrams} nested diagrams`,
     ),
-
-    heading('1. Purpose'),
-    body(brief.purpose),
-
-    heading('2. Executive summary'),
-    body(brief.executiveSummary),
-
-    heading('3. Scope'),
-    ...brief.scope.map((item) => bullet(item)),
-
-    heading('4. Architecture overview'),
-    body(
-      'The following diagram is a snapshot of the current canvas in Architecture Visual Builder. Nested diagrams, if any, are described later in this document.',
-    ),
+    metaLine('Narrative', brief.aiWritten ? 'AI-assisted SAD writing with architect notes' : 'Generated from the modelled canvas'),
   ]
 
-  const diagramBlock = diagram ? diagramParagraph(diagram, brief.title) : null
-  if (diagramBlock) {
-    children.push(diagramBlock)
+  let section = 1
+  const addHeading = (title: string) => {
+    children.push(heading(`${section}. ${title}`))
+    section += 1
+  }
+  let figure = 1
+  const addFigure = (image: DiagramImage | null | undefined, caption: string) => {
+    const block = image ? diagramParagraph(image, caption) : null
+    if (!block) {
+      children.push(body(`A raster snapshot for “${caption}” was not available. The narrative still describes this view.`))
+      return
+    }
+    children.push(block)
     children.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
         children: [
           new TextRun({
-            text: `Figure 1. ${brief.title} — current view`,
+            text: `Figure ${figure}. ${caption}`,
             italics: true,
             size: 18,
             color: MUTED,
@@ -101,15 +112,32 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
         spacing: { after: 280 },
       }),
     )
-  } else {
-    children.push(
-      body(
-        'A raster snapshot of the canvas was not available for this export. The tables and narrative below still describe every modelled system and integration.',
-      ),
-    )
+    figure += 1
   }
 
-  children.push(heading('5. Architectural layers'))
+  addHeading('Purpose')
+  children.push(body(brief.purpose))
+
+  addHeading('Executive summary')
+  children.push(body(brief.executiveSummary))
+
+  addHeading('Scope')
+  for (const item of brief.scope) children.push(bullet(item))
+
+  if (brief.assumptions.length > 0) {
+    addHeading('Assumptions')
+    for (const item of brief.assumptions) children.push(bullet(item))
+  }
+
+  addHeading('Architecture overview')
+  children.push(
+    body(
+      'The following diagram is the top-level canvas. Nested diagrams and sequence flows are documented in later sections.',
+    ),
+  )
+  addFigure(imageFor(images, 'root'), `${brief.title} — landscape`)
+
+  addHeading('Architectural layers')
   children.push(
     body(
       'Components are grouped by the categories used on the canvas. Each layer is a planning unit: change control, ownership, and runtime characteristics tend to align with these groups.',
@@ -123,7 +151,7 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
     ),
   )
 
-  children.push(heading('6. System catalogue'))
+  addHeading('System catalogue')
   children.push(body('The catalogue lists every modelled system, including vendor, environment, and the role it plays.'))
   children.push(
     makeTable(
@@ -133,7 +161,7 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
     ),
   )
 
-  children.push(heading('7. Integration architecture'))
+  addHeading('Integration architecture')
   if (brief.integrations.length === 0) {
     children.push(body('No integrations are modelled on this canvas.'))
   } else {
@@ -151,13 +179,85 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
     )
   }
 
-  children.push(heading('8. Component explanations'))
+  addHeading('Sequence flows')
+  if (brief.sequenceFlows.length === 0) {
+    children.push(body('Add integrations on the canvas to document end-to-end sequence flows in the next export.'))
+  } else {
+    children.push(
+      body(
+        'Sequence flows are derived from modelled integrations on the landscape and on every nested diagram. Each flow is a time-ordered conversation between participants.',
+      ),
+    )
+    const byView = groupByView(brief.sequenceFlows)
+    for (const group of byView) {
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: group.viewPath, font: 'Arial' })],
+        }),
+      )
+      for (const flow of group.flows) {
+        children.push(...sequenceSection(flow))
+      }
+    }
+  }
+
+  const nestedViews = brief.views.filter((view) => view.key !== 'root')
+  if (nestedViews.length > 0) {
+    addHeading('Nested diagrams')
+    children.push(
+      body(
+        'Every sub-diagram under a parent component is included so reviewers can inspect internal design without opening the builder.',
+      ),
+    )
+    for (const view of nestedViews) {
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: view.path, font: 'Arial' })],
+        }),
+      )
+      if (view.description) children.push(body(view.description))
+      children.push(
+        body(
+          `${view.systems.length} internal component${view.systems.length === 1 ? '' : 's'} and ${view.integrations.length} integration${view.integrations.length === 1 ? '' : 's'}.`,
+        ),
+      )
+      addFigure(imageFor(images, view.key), view.path)
+      for (const system of view.systems) {
+        children.push(bullet(`${system.label} — ${system.explanation}`))
+      }
+      if (view.integrations.length > 0) {
+        children.push(
+          makeTable(
+            ['From', 'To', 'Protocol', 'Frequency'],
+            [2400, 2400, 2200, CONTENT_W - 7000],
+            view.integrations.map((item) => [item.sourceLabel, item.targetLabel, item.protocol, item.frequency]),
+          ),
+        )
+      }
+    }
+  }
+
+  addHeading('Non-functional requirements')
+  if (brief.nfrs.length === 0) {
+    children.push(body('No non-functional requirements were derived. Add feature NFRs or use AI Write SAD to draft quality attributes.'))
+  } else {
+    children.push(
+      body(
+        'Quality attributes for this landscape. Feature-authored NFRs are included when present; remaining items are inferred from the modelled systems, APIs, and flows.',
+      ),
+    )
+    children.push(nfrTable(brief.nfrs))
+  }
+
+  addHeading('Component explanations')
   children.push(body('The following narratives explain why each system is on the diagram and how it participates in the landscape.'))
   for (const system of brief.systems) {
     children.push(...systemSection(system))
   }
 
-  children.push(heading('9. Integration explanations'))
+  addHeading('Integration explanations')
   if (brief.integrations.length === 0) {
     children.push(body('Add connections on the canvas to document data movement in the next export.'))
   } else {
@@ -167,7 +267,7 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
   }
 
   if (brief.apis.length > 0) {
-    children.push(heading('10. Interface specifications'))
+    addHeading('Interface specifications')
     children.push(
       body(
         'API components and integrations that carry an interface spec are expanded here so reviewers can see available methods without opening Swagger.',
@@ -195,31 +295,31 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
     }
   }
 
-  if (brief.views.length > 1) {
-    children.push(heading(brief.apis.length > 0 ? '11. Nested diagrams' : '10. Nested diagrams'))
-    children.push(body('These views were found under systems that have an internal diagram.'))
-    for (const view of brief.views.slice(1)) {
+  addHeading('Observations')
+  for (const note of brief.observations) {
+    children.push(bullet(note))
+  }
+
+  if (brief.risks.length > 0 || brief.recommendations.length > 0) {
+    addHeading('Risks and recommendations')
+    if (brief.risks.length > 0) {
       children.push(
         new Paragraph({
           heading: HeadingLevel.HEADING_2,
-          children: [new TextRun({ text: view.path, font: 'Arial' })],
+          children: [new TextRun({ text: 'Risks', font: 'Arial' })],
         }),
       )
-      if (view.description) children.push(body(view.description))
-      children.push(
-        body(
-          `${view.systems.length} internal component${view.systems.length === 1 ? '' : 's'} and ${view.integrations.length} integration${view.integrations.length === 1 ? '' : 's'}.`,
-        ),
-      )
-      for (const system of view.systems) {
-        children.push(bullet(`${system.label} — ${system.explanation}`))
-      }
+      for (const item of brief.risks) children.push(bullet(item))
     }
-  }
-
-  children.push(heading(brief.apis.length > 0 || brief.views.length > 1 ? '12. Observations' : '10. Observations'))
-  for (const note of brief.observations) {
-    children.push(bullet(note))
+    if (brief.recommendations.length > 0) {
+      children.push(
+        new Paragraph({
+          heading: HeadingLevel.HEADING_2,
+          children: [new TextRun({ text: 'Recommendations', font: 'Arial' })],
+        }),
+      )
+      for (const item of brief.recommendations) children.push(bullet(item))
+    }
   }
 
   const doc = new Document({
@@ -251,6 +351,15 @@ export async function buildArchitectureDocx(brief: ArchitectureBrief, diagram?: 
           quickFormat: true,
           run: { size: 24, bold: true, font: 'Arial', color: '1E1B4B' },
           paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 1 },
+        },
+        {
+          id: 'Heading3',
+          name: 'Heading 3',
+          basedOn: 'Normal',
+          next: 'Normal',
+          quickFormat: true,
+          run: { size: 22, bold: true, font: 'Arial', color: '312E81' },
+          paragraph: { spacing: { before: 180, after: 80 }, outlineLevel: 2 },
         },
       ],
     },
@@ -368,6 +477,85 @@ function integrationSection(integration: IntegrationBrief): (Paragraph | Table)[
     }),
     body(integration.explanation),
   ]
+}
+
+function sequenceSection(flow: SequenceFlowBrief): (Paragraph | Table)[] {
+  const rows: (Paragraph | Table)[] = [
+    new Paragraph({
+      heading: HeadingLevel.HEADING_3,
+      children: [new TextRun({ text: flow.name, font: 'Arial' })],
+    }),
+    body(flow.summary),
+    body(`Participants: ${flow.participants.join(', ') || '—'}`),
+    makeTable(
+      ['Step', 'From', 'To', 'Protocol', 'Message'],
+      [700, 1800, 1800, 1400, CONTENT_W - 5700],
+      flow.steps.map((step, index) => [
+        String(index + 1),
+        step.from,
+        step.to,
+        step.protocol,
+        step.message,
+      ]),
+    ),
+  ]
+  if (flow.script) {
+    rows.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: flow.script,
+            font: 'Consolas',
+            size: 18,
+            color: SLATE,
+          }),
+        ],
+        spacing: { before: 80, after: 200 },
+      }),
+    )
+  }
+  return rows
+}
+
+function nfrTable(items: NfrBrief[]) {
+  return makeTable(
+    ['ID', 'Category', 'Requirement', 'Rationale'],
+    [1200, 1600, 4200, CONTENT_W - 7000],
+    items.map((item) => [item.id, item.category, item.requirement, item.rationale]),
+  )
+}
+
+function asSadDiagrams(diagrams?: DiagramImage | SadDiagramSet | null): SadDiagramSet {
+  if (!diagrams) return {}
+  if ('dataUrl' in diagrams) {
+    return {
+      overview: diagrams,
+      views: [{ key: 'root', title: 'Overview', image: diagrams }],
+    }
+  }
+  return diagrams
+}
+
+function imageFor(diagrams: SadDiagramSet, key: string): DiagramImage | null {
+  const match = diagrams.views?.find((view) => view.key === key)
+  if (match) return match.image
+  if (key === 'root') return diagrams.overview ?? null
+  return null
+}
+
+function groupByView(flows: SequenceFlowBrief[]): Array<{ viewPath: string; flows: SequenceFlowBrief[] }> {
+  const groups: Array<{ viewPath: string; flows: SequenceFlowBrief[] }> = []
+  const index = new Map<string, number>()
+  for (const flow of flows) {
+    const existing = index.get(flow.viewKey)
+    if (existing != null) {
+      groups[existing].flows.push(flow)
+      continue
+    }
+    index.set(flow.viewKey, groups.length)
+    groups.push({ viewPath: flow.viewPath, flows: [flow] })
+  }
+  return groups
 }
 
 function diagramParagraph(diagram: DiagramImage, title: string): Paragraph | null {

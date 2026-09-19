@@ -81,8 +81,8 @@ export function ChangeDesignSection({
         <span>Feature / apply</span>
       </div>
       <p className="sub-diagram-desc">
-        Translate this component’s new or update architecture change into an agent instruction with
-        the code path and where to add or update, then apply it.
+        Translate this component’s new or update architecture change into an agent instruction that
+        includes the feature and user story, then send it to a coding agent.
       </p>
 
       {linked.length === 0 ? (
@@ -143,11 +143,7 @@ export function ChangeDesignSection({
                             status: 'applying',
                           }),
                         )
-                        setMessage(
-                          result.mode === 'vscode'
-                            ? 'Applying in VS Code. Mark applied when the agent finishes.'
-                            : 'Apply instruction copied and downloaded. Mark applied when done.',
-                        )
+                        setMessage(result.message)
                       } finally {
                         setBusyId(null)
                       }
@@ -155,7 +151,7 @@ export function ChangeDesignSection({
                   }}
                 >
                   {busyId === task.id ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
-                  Apply
+                  Send to agent
                 </button>
                 {task.status === 'applying' && (
                   <button

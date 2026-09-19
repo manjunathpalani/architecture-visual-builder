@@ -11,6 +11,7 @@ export type DialogId =
   | 'saas'
   | 'aiDiagram'
   | 'aiAnalysis'
+  | 'aiSad'
   | 'changeDesign'
 
 export const DIALOG_LABELS: Record<DialogId, string> = {
@@ -26,6 +27,7 @@ export const DIALOG_LABELS: Record<DialogId, string> = {
   saas: 'SaaS metadata',
   aiDiagram: 'Draw with AI',
   aiAnalysis: 'Capability analysis',
+  aiSad: 'Write SAD',
   changeDesign: 'Feature and apply changes',
 }
 

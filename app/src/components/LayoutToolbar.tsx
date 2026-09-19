@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useReactFlow, type Edge, type Node } from '@xyflow/react'
-import { BoxSelect, Columns3, Grid3x3, Lock, LockKeyholeOpen, Maximize2, RotateCcw, WandSparkles, Workflow } from 'lucide-react'
+import { BoxSelect, Columns3, Grid3x3, Lock, LockKeyholeOpen, Maximize2, RotateCcw, Share2, WandSparkles, Workflow } from 'lucide-react'
 import { layoutByTier, layoutFlow, layoutGrid, layoutSmart } from '../utils/autoLayout'
 import type { IntegrationEdgeData, IntegrationNodeData } from '../utils/jsonIO'
 import { FloatingToolbar } from './FloatingToolbar'
@@ -13,6 +13,8 @@ interface LayoutToolbarProps {
   selectedNodeCount?: number
   onGroupSelection?: () => void
   onSelectAll?: () => void
+  onSelectAllIntegrations?: () => void
+  selectedIntegrationCount?: number
 }
 
 type LayoutSnapshot = Map<
@@ -40,6 +42,8 @@ export function LayoutToolbar({
   selectedNodeCount = 0,
   onGroupSelection,
   onSelectAll,
+  onSelectAllIntegrations,
+  selectedIntegrationCount = 0,
 }: LayoutToolbarProps) {
   const { getNodes, getEdges, setNodes, fitView } = useReactFlow()
   const [previousLayout, setPreviousLayout] = useState<LayoutSnapshot | null>(null)
@@ -128,6 +132,17 @@ export function LayoutToolbar({
         >
           <BoxSelect size={15} />
           Select all
+        </button>
+      )}
+      {onSelectAllIntegrations && (
+        <button
+          type="button"
+          className={`layout-btn ${selectedIntegrationCount > 1 ? 'active' : ''}`}
+          title="Select every integration so you can change colour, protocol, and line style together"
+          onClick={onSelectAllIntegrations}
+        >
+          <Share2 size={15} />
+          Integrations
         </button>
       )}
       {onGroupSelection && (

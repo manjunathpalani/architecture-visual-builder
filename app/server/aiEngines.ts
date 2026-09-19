@@ -1,4 +1,4 @@
-export type AiProviderId = 'spacexai' | 'openai' | 'anthropic' | 'gemini' | 'azure-openai'
+export type AiProviderId = 'spacexai' | 'openai' | 'anthropic' | 'gemini' | 'azure-openai' | 'copilot'
 
 export interface EngineImage {
   mimeType: 'image/jpeg' | 'image/png'
@@ -18,7 +18,7 @@ export interface EngineRequest {
   systemPrompt?: string
 }
 
-const SYSTEM_PROMPT = `You are an enterprise integration architect inside Architecture Visual Builder.
+export const SYSTEM_PROMPT = `You are an enterprise integration architect inside Architecture Visual Builder.
 Return ONLY valid JSON for an architecture diagram. No markdown, no commentary, no code fences.
 
 JSON shape:
@@ -134,6 +134,8 @@ export async function completeDiagram(request: EngineRequest): Promise<string> {
       return completeGemini(request)
     case 'azure-openai':
       return completeAzureOpenAI(request)
+    case 'copilot':
+      return completeCopilot(request)
     default:
       throw new Error('Unknown AI engine')
   }
@@ -196,6 +198,53 @@ export async function completeRequirements(request: EngineRequest): Promise<stri
   return completeDiagram({ ...request, systemPrompt: REQUIREMENTS_SYSTEM_PROMPT })
 }
 
+export const SAD_SYSTEM_PROMPT = `You write Solution Architecture Document (SAD) narrative for an enterprise integration landscape.
+Return ONLY valid JSON. No markdown, no commentary, no code fences.
+
+JSON shape:
+{
+  "purpose": "1-2 sentences on why this SAD exists",
+  "executiveSummary": "4-6 sentence landscape narrative",
+  "scope": ["in-scope item"],
+  "assumptions": ["assumption"],
+  "nonFunctionalRequirements": [
+    {
+      "id": "NFR-1",
+      "category": "Security|Performance|Reliability|Availability|Observability|Data|Compliance|Operability",
+      "requirement": "The system shall...",
+      "rationale": "why this quality attribute matters here"
+    }
+  ],
+  "sequenceFlows": [
+    {
+      "id": "existing-flow-id-or-new",
+      "name": "short flow name",
+      "viewPath": "diagram path from context",
+      "summary": "what this conversation accomplishes",
+      "steps": [
+        { "from": "system label", "to": "system label", "message": "what is exchanged" }
+      ]
+    }
+  ],
+  "systemNarratives": [{ "id": "system-id", "explanation": "richer component narrative" }],
+  "integrationNarratives": [{ "id": "integration-id", "explanation": "richer flow narrative" }],
+  "observations": ["insight"],
+  "risks": ["risk"],
+  "recommendations": ["next action"]
+}
+
+Rules:
+- Be specific to named systems, protocols, nested diagrams, and sequence flows in the context. Do not invent systems.
+- Cover every nested/sub-diagram mentioned in the context: sequenceFlows must include root and nested views.
+- Non-functional requirements: 6 to 10 testable quality attributes. Honor any existing feature/story NFRs in the context; extend them to architecture scope (security, performance, reliability, availability, observability, data, compliance, operability).
+- Sequence flow steps must use existing system labels. Prefer the structural flows supplied in context; enrich names, summaries, and messages.
+- systemNarratives and integrationNarratives must use ids from context.  Skip ids you cannot match.
+- observations, risks, recommendations: 3 to 6 each, concrete, no generic filler.`
+
+export async function completeSad(request: EngineRequest): Promise<string> {
+  return completeDiagram({ ...request, systemPrompt: SAD_SYSTEM_PROMPT })
+}
+
 export async function verifyProviderKey(request: {
   provider: AiProviderId
   apiKey: string
@@ -252,6 +301,22 @@ export async function verifyProviderKey(request: {
           label: 'Azure OpenAI',
         })
         return { ok: true, message: `Verified · Azure deployment ${deployment} is reachable` }
+      }
+      case 'copilot': {
+        await postJson('https://models.github.ai/inference/chat/completions', {
+          headers: {
+            Authorization: `Bearer ${key}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          body: {
+            model: 'openai/gpt-4o-mini',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 1,
+          },
+          label: 'GitHub Copilot',
+        })
+        return { ok: true, message: 'Verified · GitHub Copilot / Models accepted the token' }
       }
       default:
         return { ok: false, message: 'Unknown AI engine' }
@@ -338,6 +403,59 @@ async function completeGemini(request: EngineRequest): Promise<string> {
   const text = extractGeminiText(payload)
   if (!text) throw new Error('Gemini returned an empty diagram. Try a more specific prompt.')
   return text
+}
+
+async function completeCopilot(request: EngineRequest): Promise<string> {
+  const text = userMessage(request.prompt, request.context, Boolean(request.images?.length))
+  const content = request.images?.length
+    ? [
+        { type: 'text', text },
+        ...request.images.map((image) => ({
+          type: 'image_url',
+          image_url: { url: image.dataUrl },
+        })),
+      ]
+    : text
+  const model = request.model.includes('/') ? request.model : `openai/${request.model}`
+  const messages = [
+    { role: 'system', content: activeSystemPrompt(request) },
+    { role: 'user', content },
+  ]
+
+  try {
+    const payload = await postJson('https://models.github.ai/inference/chat/completions', {
+      headers: {
+        Authorization: `Bearer ${request.apiKey}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: { model, temperature: 0.3, messages },
+      label: 'GitHub Copilot',
+    })
+    const output = extractChatContent(payload)
+    if (output) return output
+  } catch (modelsErr) {
+    try {
+      const payload = await postJson('https://api.githubcopilot.com/chat/completions', {
+        headers: {
+          Authorization: `Bearer ${request.apiKey}`,
+          'Editor-Version': 'ArchitectureVisualBuilder/0.1.0',
+          'Copilot-Integration-Id': 'vscode-chat',
+        },
+        body: {
+          model: request.model.replace(/^openai\//, ''),
+          temperature: 0.3,
+          messages,
+        },
+        label: 'GitHub Copilot',
+      })
+      const output = extractChatContent(payload)
+      if (output) return output
+    } catch {
+      throw modelsErr
+    }
+  }
+  throw new Error('GitHub Copilot returned an empty response. Try a more specific prompt.')
 }
 
 async function completeAzureOpenAI(request: EngineRequest): Promise<string> {

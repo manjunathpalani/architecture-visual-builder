@@ -18,6 +18,7 @@ import type { ArchitectureDocument, ComponentChangeTask, TechnicalChangeDesign }
 import {
   AI_PROVIDERS,
   getProvider,
+  isEngineReady,
   loadAiSettings,
   type AiProviderId,
 } from '../utils/aiProviders'
@@ -48,6 +49,7 @@ import {
   syncTasksFromArchitecture,
   upsertDesign,
 } from '../utils/changeDesign'
+import { dispatchAgentWork } from '../utils/agentDispatch'
 import { FeatureStoriesPanel } from './FeatureStoriesPanel'
 import { FeatureStoryTree, type FeatureTreeSelection } from './FeatureStoryTree'
 
@@ -96,6 +98,7 @@ export function ChangeDesignModal({
   const [focusStoryId, setFocusStoryId] = useState<string | null>(null)
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
   const [generatingReqs, setGeneratingReqs] = useState<string | null>(null)
+  const [sendingAgent, setSendingAgent] = useState<string | null>(null)
   const [provider, setProvider] = useState<AiProviderId>(loadAiSettings().selectedProvider)
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [size, setSize] = useState<'dialog' | 'expanded'>(() => {
@@ -130,8 +133,7 @@ export function ChangeDesignModal({
   }, [focusStoryId, focusTaskId, view])
 
   const info = getProvider(provider)
-  const serverReady = Boolean(status?.providers.find((item) => item.id === provider)?.configured)
-  const hasKey = serverReady || Boolean(loadAiSettings().keys[provider]?.trim())
+  const hasKey = isEngineReady(provider, status)
 
   const filteredSystems = systems.filter((item) => {
     if (!query.trim()) return true
@@ -351,39 +353,52 @@ export function ChangeDesignModal({
       }
       setDraft(next)
       persist(next)
-      setMessage(
-        result.mode === 'vscode'
-          ? `Applying ${CHANGE_KIND_LABELS[task.changeKind]} for ${task.systemLabel} in VS Code`
-          : `Apply instruction copied and downloaded for ${task.systemLabel}. Mark applied when the agent finishes.`,
-      )
+      setMessage(result.message)
     } finally {
       setBusyTaskId(null)
     }
   }
 
-  const applyAll = async () => {
+  const sendToAgent = async (scope: 'feature' | 'story' | 'component', storyId?: string, task?: ComponentChangeTask) => {
     if (!draft) return
-    let current = draft
-    setGeneratingAll(true)
+    const key = scope === 'feature' ? 'feature' : scope === 'story' ? `story:${storyId}` : task?.id ?? 'component'
+    setSendingAgent(key)
+    setMessage(null)
     try {
-      for (const task of current.tasks) {
-        setBusyTaskId(task.id)
-        await applyComponentChange({ document, design: current, task })
-        current = {
-          ...current,
-          status: 'in-progress',
-          tasks: current.tasks.map((item) =>
-            item.id === task.id ? { ...item, status: 'applying' as const } : item,
-          ),
-        }
-        setDraft(current)
+      const result = await dispatchAgentWork({
+        document,
+        design: draft,
+        scope,
+        storyId,
+        task,
+        apply: true,
+      })
+      const applyingIds = new Set(
+        scope === 'component' && task
+          ? [task.id]
+          : scope === 'story' && storyId
+            ? draft.tasks.filter((item) => item.storyId === storyId || (draft.stories ?? []).find((story) => story.id === storyId)?.systemIds.includes(item.systemId)).map((item) => item.id)
+            : draft.tasks.map((item) => item.id),
+      )
+      const next = {
+        ...draft,
+        status: 'in-progress' as const,
+        tasks: draft.tasks.map((item) =>
+          applyingIds.has(item.id) ? { ...item, status: 'applying' as const } : item,
+        ),
       }
-      persist(current)
-      setMessage(`Applying ${current.tasks.length} architecture change${current.tasks.length === 1 ? '' : 's'}`)
+      setDraft(next)
+      persist(next)
+      setMessage(result.url ? `${result.message} ${result.url}` : result.message)
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Could not send work to the agent')
     } finally {
-      setBusyTaskId(null)
-      setGeneratingAll(false)
+      setSendingAgent(null)
     }
+  }
+
+  const applyAll = async () => {
+    await sendToAgent('feature')
   }
 
   const markApplied = (task: ComponentChangeTask) => {
@@ -460,8 +475,8 @@ export function ChangeDesignModal({
               <Bot size={18} /> Feature and apply changes
             </h2>
             <p>
-              Define the feature and user stories, then generate agent instructions with the code
-              path and where to add or update. Apply them with a coding agent.
+              Define the feature and user stories, generate instructions, then send the pack to a
+              coding agent (VS Code Copilot, GitHub Copilot, or Copilot CLI).
             </p>
           </div>
           <div className="dialog-header-actions">
@@ -561,7 +576,7 @@ export function ChangeDesignModal({
               {!hasKey && (
                 <button type="button" className="btn-secondary" onClick={onManageKeys}>
                   <KeyRound size={14} />
-                  Add {info.shortLabel} key
+                  {provider === 'copilot' ? 'Connect Copilot' : `Add ${info.shortLabel} key`}
                 </button>
               )}
             </div>
@@ -686,9 +701,11 @@ export function ChangeDesignModal({
                   draft={draft}
                   focusStoryId={focusStoryId}
                   generatingId={generatingReqs}
+                  sendingId={sendingAgent}
                   onChange={(next) => setDraft(next)}
                   onFocusStory={setFocusStoryId}
                   onGenerateStory={(storyId) => void runGenerateRequirements(storyId)}
+                  onSendStory={(storyId) => void sendToAgent('story', storyId)}
                 />
                 <div className="change-design-components-header">
                   <h3>New vs update</h3>
@@ -788,11 +805,12 @@ export function ChangeDesignModal({
                   <button
                     type="button"
                     className="btn-primary"
-                    disabled={draft.tasks.length === 0 || generatingAll}
+                    disabled={draft.tasks.length === 0 || generatingAll || Boolean(sendingAgent)}
                     onClick={() => void applyAll()}
+                    title="Send this feature, its user stories, and component instructions to a coding agent"
                   >
-                    <Play size={14} />
-                    Apply all
+                    {sendingAgent === 'feature' ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
+                    Send feature to agent
                   </button>
                 </div>
               </div>
@@ -857,11 +875,12 @@ export function ChangeDesignModal({
                           <button
                             type="button"
                             className="btn-primary"
-                            disabled={busyTaskId === task.id || generatingAll}
+                            disabled={busyTaskId === task.id || generatingAll || Boolean(sendingAgent)}
                             onClick={() => void applyTask(task)}
+                            title="Send this component instruction with its feature and user story"
                           >
-                            <Play size={14} />
-                            Apply
+                            {busyTaskId === task.id ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
+                            Send to agent
                           </button>
                           {task.status === 'applying' && (
                             <button
