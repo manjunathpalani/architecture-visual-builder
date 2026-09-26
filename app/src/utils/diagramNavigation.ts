@@ -466,7 +466,21 @@ export function deleteSystemInView(
   systemId: string,
 ): ArchitectureDocument {
   const view = getDiagramView(doc, path)
-  const updatedSystems = view.systems.filter((s) => s.id !== systemId)
+  const deleted = view.systems.find((item) => item.id === systemId)
+  const updatedSystems = view.systems
+    .filter((s) => s.id !== systemId)
+    .map((s) =>
+      s.parentId === systemId
+        ? {
+            ...s,
+            parentId: undefined,
+            position: {
+              x: s.position.x + (deleted?.position.x ?? 0),
+              y: s.position.y + (deleted?.position.y ?? 0),
+            },
+          }
+        : s,
+    )
   const updatedIntegrations = view.integrations.filter(
     (i) => i.source !== systemId && i.target !== systemId,
   )

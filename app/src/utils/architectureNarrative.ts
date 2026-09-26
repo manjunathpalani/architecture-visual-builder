@@ -8,6 +8,7 @@ import {
 import type { DiagramPath } from '../types/diagram'
 import { parseInterfaceSpec, uniqueMethods, type InterfaceSpec } from '../types/interfaceSpec'
 import { hasSubDiagram, hasSubDiagramContent } from './diagramNavigation'
+import { parseAppliedNfrs as parseSystemNfrs } from './nfrCatalog'
 
 export interface DiagramCaptureTarget {
   key: string
@@ -62,6 +63,9 @@ export interface SystemBrief {
   vendor?: string
   environment?: string
   service?: string
+  region?: string
+  sku?: string
+  haMode?: string
   description: string
   explanation: string
   hasSubDiagram: boolean
@@ -290,6 +294,9 @@ function toSystemBrief(system: SystemNode): SystemBrief {
   const vendor = system.properties?.vendor
   const environment = system.properties?.environment
   const service = system.properties?.service
+  const region = system.properties?.region
+  const sku = system.properties?.sku
+  const haMode = system.properties?.haMode
   const description =
     system.properties?.description?.trim() ||
     `${typeLabel} component in the ${system.category || typeLabel} layer.`
@@ -298,6 +305,9 @@ function toSystemBrief(system: SystemNode): SystemBrief {
     `${system.label} is a ${typeLabel.toLowerCase()} component`,
     vendor ? `from ${vendor}` : '',
     environment ? `running in ${environment}` : '',
+    region ? `in ${region}` : '',
+    sku ? `on SKU ${sku}` : '',
+    haMode ? `with ${haMode.replace(/-/g, ' ')} high availability` : '',
     service ? `using ${service}` : '',
     `. ${description}`,
     api
@@ -319,6 +329,9 @@ function toSystemBrief(system: SystemNode): SystemBrief {
     vendor,
     environment,
     service,
+    region,
+    sku,
+    haMode,
     description,
     explanation,
     hasSubDiagram: hasSubDiagram(system),
@@ -453,7 +466,14 @@ function buildExecutiveSummary(
         ).join(', ')}.`
       : ''
 
-  return `${intro}${layerText}${flowText}${hubText}${apiText}`.replace(/\s+/g, ' ').trim()
+  const infra = doc.metadata.infrastructure
+  const infraText = infra?.cloudProvider
+    ? ` Physical landing zone is ${[infra.cloudProvider, infra.primaryRegion, infra.landingZone].filter(Boolean).join(', ')}.`
+    : systems.some((s) => s.region)
+      ? ` ${systems.filter((s) => s.region).length} components declare a cloud region.`
+      : ''
+
+  return `${intro}${layerText}${flowText}${hubText}${apiText}${infraText}`.replace(/\s+/g, ' ').trim()
 }
 
 function buildObservations(
@@ -721,6 +741,24 @@ function collectNfrs(
   hubs: SystemBrief[],
 ): NfrBrief[] {
   const items: NfrBrief[] = []
+  let templateIndex = 1
+  const visitSystems = (nodes: SystemNode[]) => {
+    for (const system of nodes) {
+      const applied = parseSystemNfrs(system.properties)
+      for (const nfr of applied) {
+        items.push({
+          id: `NFR-T-${templateIndex++}`,
+          category: nfr.category,
+          requirement: `${system.label}: ${nfr.requirement}`,
+          rationale: nfr.rationale || `From ${nfr.templateName} on ${system.label}`,
+          source: 'architecture',
+        })
+      }
+      if (system.subDiagram?.systems.length) visitSystems(system.subDiagram.systems)
+    }
+  }
+  visitSystems(doc.systems)
+
   let featureIndex = 1
   for (const design of doc.changeDesigns ?? []) {
     for (const line of parseRequirementLines(design.nonFunctionalRequirements)) {
@@ -752,7 +790,7 @@ function collectNfrs(
     seen.add(item.requirement.toLowerCase())
     items.push(item)
   }
-  return items.slice(0, 16)
+  return items.slice(0, 40)
 }
 
 function deriveArchitectureNfrs(

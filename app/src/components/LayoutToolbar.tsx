@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useReactFlow, type Edge, type Node } from '@xyflow/react'
-import { BoxSelect, Columns3, Grid3x3, Lock, LockKeyholeOpen, Maximize2, RotateCcw, Share2, WandSparkles, Workflow } from 'lucide-react'
+import { BoxSelect, Columns3, Grid3x3, Group, Lock, LockKeyholeOpen, Maximize2, RotateCcw, Share2, Ungroup, WandSparkles, Workflow } from 'lucide-react'
 import { layoutByTier, layoutFlow, layoutGrid, layoutSmart } from '../utils/autoLayout'
 import type { IntegrationEdgeData, IntegrationNodeData } from '../utils/jsonIO'
 import { FloatingToolbar } from './FloatingToolbar'
@@ -12,6 +12,8 @@ interface LayoutToolbarProps {
   onToggleLayoutLock?: () => void
   selectedNodeCount?: number
   onGroupSelection?: () => void
+  onUngroupSelection?: () => void
+  canUngroup?: boolean
   onSelectAll?: () => void
   onSelectAllIntegrations?: () => void
   selectedIntegrationCount?: number
@@ -41,6 +43,8 @@ export function LayoutToolbar({
   onToggleLayoutLock,
   selectedNodeCount = 0,
   onGroupSelection,
+  onUngroupSelection,
+  canUngroup = false,
   onSelectAll,
   onSelectAllIntegrations,
   selectedIntegrationCount = 0,
@@ -149,12 +153,24 @@ export function LayoutToolbar({
         <button
           type="button"
           className="layout-btn"
-          title={selectedNodeCount ? 'Create a group boundary around the selected components' : 'Select components to group'}
+          title={selectedNodeCount ? 'Group selected components so they move together' : 'Select components (click or drag-box) then group'}
           onClick={onGroupSelection}
           disabled={!selectedNodeCount || layoutLocked}
         >
-          <Columns3 size={15} />
+          <Group size={15} />
           Group
+        </button>
+      )}
+      {onUngroupSelection && (
+        <button
+          type="button"
+          className="layout-btn"
+          title="Ungroup the selected group or components"
+          onClick={onUngroupSelection}
+          disabled={!canUngroup || layoutLocked}
+        >
+          <Ungroup size={15} />
+          Ungroup
         </button>
       )}
       <button

@@ -22,6 +22,13 @@ type HostMessage =
   | { type: 'instructionResult'; requestId: string; text?: string; error?: string }
   | { type: 'aiApiResult'; requestId: string; status: number; payload: unknown }
   | { type: 'pickJsonResult'; requestId: string; json?: string; error?: string; cancelled?: boolean }
+  | {
+      type: 'workspaceScanResult'
+      requestId: string
+      files?: Array<{ path: string; systemId?: string; systemLabel?: string; excerpt?: string }>
+      notes?: string[]
+      error?: string
+    }
 
 type ClientMessage =
   | { type: 'ready' }
@@ -42,6 +49,11 @@ type ClientMessage =
   | { type: 'generateInstruction'; requestId: string; prompt: string; context: string }
   | { type: 'aiApi'; requestId: string; path: string; body?: Record<string, unknown> }
   | { type: 'pickJsonFile'; requestId: string }
+  | {
+      type: 'scanWorkspace'
+      requestId: string
+      roots: Array<{ label: string; path?: string; systemId?: string }>
+    }
 
 interface VsCodeApi {
   postMessage(message: ClientMessage): void
@@ -61,6 +73,16 @@ const pendingAi = new Map<
 const pendingPicks = new Map<
   string,
   { resolve: (json: string | null) => void; reject: (err: Error) => void }
+>()
+const pendingScans = new Map<
+  string,
+  {
+    resolve: (result: {
+      files: Array<{ path: string; systemId?: string; systemLabel?: string; excerpt?: string }>
+      notes: string[]
+    }) => void
+    reject: (err: Error) => void
+  }
 >()
 const listeners = new Set<(message: HostMessage) => void>()
 let listening = false
@@ -99,6 +121,14 @@ function ensureListen() {
       if (!pending) return
       pendingAi.delete(data.requestId)
       pending.resolve({ status: data.status, payload: data.payload })
+      return
+    }
+    if (data.type === 'workspaceScanResult') {
+      const pending = pendingScans.get(data.requestId)
+      if (!pending) return
+      pendingScans.delete(data.requestId)
+      if (data.error) pending.reject(new Error(data.error))
+      else pending.resolve({ files: data.files ?? [], notes: data.notes ?? [] })
       return
     }
     if (data.type === 'pickJsonResult') {
@@ -184,6 +214,35 @@ export function pickJsonFileFromHost(): Promise<string | null> {
       },
     })
     vscode.postMessage({ type: 'pickJsonFile', requestId })
+  })
+}
+
+export function scanWorkspaceCode(
+  roots: Array<{ label: string; path?: string; systemId?: string }>,
+): Promise<{
+  files: Array<{ path: string; systemId?: string; systemLabel?: string; excerpt?: string }>
+  notes: string[]
+}> {
+  const vscode = getVsCodeApi()
+  if (!vscode) return Promise.reject(new Error('Not running inside VS Code'))
+  ensureListen()
+  const requestId = crypto.randomUUID()
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      pendingScans.delete(requestId)
+      reject(new Error('VS Code workspace scan timed out'))
+    }, 120000)
+    pendingScans.set(requestId, {
+      resolve: (result) => {
+        window.clearTimeout(timer)
+        resolve(result)
+      },
+      reject: (err) => {
+        window.clearTimeout(timer)
+        reject(err)
+      },
+    })
+    vscode.postMessage({ type: 'scanWorkspace', requestId, roots })
   })
 }
 

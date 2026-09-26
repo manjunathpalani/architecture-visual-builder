@@ -12,6 +12,7 @@ import {
 import type { Edge, Node } from '@xyflow/react'
 import type {
   ArchitectureDocument,
+  ArchitectureMetadata,
   DiagramShape,
   DrawingShapeKind,
   EdgeRouting,
@@ -51,6 +52,14 @@ import { InterfaceSpecSection } from './InterfaceSpecSection'
 import { SequenceFlowSection } from './SequenceFlowSection'
 import { RichNotesEditor } from './RichNotesEditor'
 import { hasRichNotes } from '../utils/richNotes'
+import { CloudInfrastructureSection } from './CloudInfrastructureSection'
+import { NfrTemplateSection } from './NfrTemplateSection'
+import { nfrSummary, parseAppliedNfrs } from '../utils/nfrCatalog'
+import {
+  diagramInfraSummary,
+  inheritInfrastructure,
+  isInfraComponent,
+} from '../utils/cloudInfrastructure'
 import { isApiIntegration, isApiNode } from '../utils/apiComponent'
 import { hasCodeLink } from '../utils/codeLink'
 import { tasksForSystem } from '../utils/changeDesign'
@@ -91,6 +100,7 @@ interface PropertiesPanelProps {
   onReadSaasMetadata?: () => void
   onOpenChangeDesign?: (systemId: string) => void
   onChangeDesigns?: (designs: TechnicalChangeDesign[]) => void
+  onUpdateMetadata?: (patch: Partial<ArchitectureMetadata>) => void
   variant?: 'side' | 'flyout'
   onDock?: () => void
   onUndock?: () => void
@@ -128,6 +138,7 @@ export function PropertiesPanel({
   onReadSaasMetadata,
   onOpenChangeDesign,
   onChangeDesigns,
+  onUpdateMetadata,
   variant = 'side',
   onDock,
   onUndock,
@@ -169,13 +180,21 @@ export function PropertiesPanel({
   if (!selectedNode && !selectedEdge) {
     if (variant === 'flyout') return null
     return (
-      <aside className="properties empty">
+      <aside className="properties">
         <div className="panel-header">
-          <h2>Properties</h2>
-          <p>Select a system or integration to edit</p>
+          <h2>Diagram properties</h2>
+          <p>{document.metadata.name}</p>
         </div>
-        <div className="empty-state">
-          <p>Click any node or connection on the canvas to view and edit its details.</p>
+        <div className="property-form" ref={formRef}>
+          <p className="code-link-hint">
+            Physical cloud landing zone for this diagram. New Azure, AWS, and cloud components inherit these values.
+            Select a component to set its SKU, region, and network.
+          </p>
+          <CloudInfrastructureSection
+            mode="diagram"
+            diagram={document.metadata.infrastructure}
+            onChangeDiagram={(infrastructure) => onUpdateMetadata?.({ infrastructure })}
+          />
         </div>
       </aside>
     )
@@ -598,6 +617,51 @@ export function PropertiesPanel({
             />
           </label>
           </PropertyGroup>
+
+          {isInfraComponent(data.systemType, data.properties) && (
+          <PropertyGroup
+            id="infra"
+            title="Cloud infrastructure"
+            summary={
+              [data.properties.region, data.properties.sku].filter(Boolean).join(' · ') ||
+              diagramInfraSummary(document.metadata.infrastructure)
+            }
+            expanded={isOpen('infra')}
+            onToggle={toggle}
+          >
+            <CloudInfrastructureSection
+              mode="component"
+              systemType={data.systemType}
+              properties={data.properties}
+              diagram={document.metadata.infrastructure}
+              onChangeProperties={(properties) => onUpdateNode(selectedNode.id, { properties })}
+              onCopyFromDiagram={() =>
+                onUpdateNode(selectedNode.id, {
+                  properties: inheritInfrastructure(
+                    document.metadata.infrastructure,
+                    data.systemType,
+                    data.properties,
+                  ),
+                })
+              }
+            />
+          </PropertyGroup>
+          )}
+
+          {!isNote && !isShape && (
+          <PropertyGroup
+            id="nfr"
+            title="NFR templates"
+            summary={nfrSummary(parseAppliedNfrs(data.properties))}
+            expanded={isOpen('nfr')}
+            onToggle={toggle}
+          >
+            <NfrTemplateSection
+              properties={data.properties}
+              onChange={(properties) => onUpdateNode(selectedNode.id, { properties })}
+            />
+          </PropertyGroup>
+          )}
 
           {!isNote && (
           <PropertyGroup

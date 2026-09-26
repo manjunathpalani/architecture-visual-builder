@@ -1,11 +1,13 @@
 import {
   ANALYSIS_SYSTEM_PROMPT,
+  IMPACT_SYSTEM_PROMPT,
   INSTRUCTION_SYSTEM_PROMPT,
   REQUIREMENTS_SYSTEM_PROMPT,
   SAD_SYSTEM_PROMPT,
   SYSTEM_PROMPT,
   completeAnalysis,
   completeDiagram,
+  completeImpact,
   completeInstruction,
   completeRequirements,
   completeSad,
@@ -56,6 +58,8 @@ export async function handleAiApi(path: string, body?: Record<string, unknown>):
         return handleDiagram(body ?? {})
       case 'analyze':
         return handleAnalyze(body ?? {})
+      case 'impact':
+        return handleImpact(body ?? {})
       case 'instruct':
         return handleInstruct(body ?? {})
       case 'requirements':
@@ -255,6 +259,41 @@ async function handleAnalyze(body: Record<string, unknown>): Promise<AiApiResult
   const text = await completeAnalysis({
     provider: provider.id,
     prompt: (stringField(body.prompt) || 'Analyze this architecture as enterprise capabilities. Show pros and cons.').slice(0, 4000),
+    context,
+    apiKey,
+    model: stringField(body.model) || envValue(provider.envModel ?? '') || provider.defaultModel,
+    azureEndpoint: stringField(body.azureEndpoint) || envValue('AZURE_OPENAI_ENDPOINT'),
+    azureDeployment: stringField(body.azureDeployment) || envValue('AZURE_OPENAI_DEPLOYMENT'),
+  })
+  return { status: 200, payload: { text, provider: provider.id } }
+}
+
+async function handleImpact(body: Record<string, unknown>): Promise<AiApiResult> {
+  const provider = resolveProvider(body.provider)
+  if (!provider) return { status: 400, payload: { error: 'Unknown AI engine' } }
+
+  const context = stringField(body.context)
+  if (!context) {
+    return { status: 400, payload: { error: 'Add feature work and code context before running impact analysis.' } }
+  }
+
+  const prompt = (stringField(body.prompt) || 'Analyze code impact of this architecture change.').slice(0, 4000)
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context,
+    systemPrompt: IMPACT_SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
+  const apiKey = resolveApiKey(provider, body.apiKey)
+  if (!apiKey) {
+    return missingCopilotOrKey(provider)
+  }
+
+  const text = await completeImpact({
+    provider: provider.id,
+    prompt,
     context,
     apiKey,
     model: stringField(body.model) || envValue(provider.envModel ?? '') || provider.defaultModel,

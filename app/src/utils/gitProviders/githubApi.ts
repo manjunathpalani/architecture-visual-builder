@@ -51,6 +51,18 @@ export async function listGitHubBranches(owner: string, repo: string): Promise<G
   )
 }
 
+export async function listGitHubTree(
+  owner: string,
+  repo: string,
+  ref: string,
+): Promise<Array<{ path: string; type: string; size?: number }>> {
+  const result = await gitFetch<{ tree?: Array<{ path: string; type: string; size?: number }> }>(
+    `/api/github/repos/${owner}/${repo}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+    getHeaders(),
+  )
+  return result.tree ?? []
+}
+
 export async function listGitHubContents(
   owner: string,
   repo: string,

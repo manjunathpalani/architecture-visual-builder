@@ -20,6 +20,7 @@ import {
   type EdgeRouting,
 } from '../types'
 import type { SubDiagram } from '../types/diagram'
+import { orderParentsFirst } from './nodeGrouping'
 import { sanitizeChangeDesigns } from './changeDesign'
 
 export interface IntegrationNodeData extends Record<string, unknown> {
@@ -128,11 +129,15 @@ export function documentToFlow(document: ArchitectureDocument): {
     const flowType = getFlowNodeType(system.type)
     const { width, height } = getNodeDimensions(system, flowType)
 
+    const parentExists = Boolean(system.parentId && document.systems.some((item) => item.id === system.parentId))
     return {
       id: system.id,
       type: flowType,
       position: system.position,
       zIndex: flowType === 'group' || flowType === 'shape' ? -1 : 0,
+      parentId: parentExists ? system.parentId : undefined,
+      extent: parentExists ? 'parent' : undefined,
+      expandParent: parentExists ? true : undefined,
       data: {
         systemType: system.type,
         label: system.label,
@@ -142,6 +147,7 @@ export function documentToFlow(document: ArchitectureDocument): {
       style: { width, height },
     }
   })
+  const orderedNodes = orderParentsFirst(nodes)
 
   const edges: Edge<IntegrationEdgeData>[] = document.integrations.map((integration) => ({
     id: integration.id,
@@ -179,7 +185,7 @@ export function documentToFlow(document: ArchitectureDocument): {
     },
   }))
 
-  return { nodes, edges }
+  return { nodes: orderedNodes, edges }
 }
 
 export function flowToDocument(
@@ -202,6 +208,7 @@ export function flowToDocument(
       category: node.data.category,
       position: node.position,
       properties,
+      parentId: node.parentId,
     }
   })
 

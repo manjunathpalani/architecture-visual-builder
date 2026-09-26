@@ -83,10 +83,11 @@ export async function listAzureItems(
   repoId: string,
   path: string,
   branch: string,
+  recursionLevel: 'OneLevel' | 'Full' = 'OneLevel',
 ): Promise<AzureItem[]> {
   const params = new URLSearchParams({
     scopePath: path || '/',
-    recursionLevel: 'OneLevel',
+    recursionLevel,
     'versionDescriptor.version': branch,
     'versionDescriptor.versionType': 'branch',
     'api-version': '7.0',

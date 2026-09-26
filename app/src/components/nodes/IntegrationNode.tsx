@@ -17,6 +17,7 @@ import { NotesBadge } from '../NotesBadge'
 import { parseChangeStatus } from '../../utils/architectureState'
 import { NodeConnectors } from './NodeConnectors'
 import { parseNodeFontSize, withNodeFontSize } from '../../utils/nodeFontSize'
+import { formatInfraSummary } from '../../utils/cloudInfrastructure'
 import { useDiagramLock } from './diagramLockContext'
 import { InlineNodeTitleEditor } from './InlineNodeTitleEditor'
 import { useNodeTitleEdit } from './nodeTitleEditContext'
@@ -39,6 +40,7 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
   const spec = getSpecFromProperties(nodeData.properties)
   const [showSpecModal, setShowSpecModal] = useState(false)
   const changeStatus = parseChangeStatus(nodeData.properties.changeStatus)
+  const infraSummary = formatInfraSummary(nodeData.properties)
 
   return (
     <>
@@ -53,7 +55,11 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
       <div
         className={`integration-node resizable-node display-${display} ${selected ? 'selected' : ''} ${nodeData.isFlowFocus ? 'flow-focus' : ''} ${nodeData.isFlowNeighbor ? 'flow-neighbor' : ''} ${nodeData.isFlowPath ? 'flow-path' : ''} ${nodeData.isFlowPlayCurrent ? 'flow-play-current' : ''} ${nodeData.showTouchPoints ? 'show-touch-points' : ''} change-${changeStatus} ${nodeData.isStateContext ? 'state-context' : ''}`}
         style={withNodeFontSize(nodeData.properties, { '--node-color': color } as React.CSSProperties)}
-        title={isIcon ? `${nodeData.label} · ${config.label}` : undefined}
+        title={
+          isIcon
+            ? `${nodeData.label} · ${config.label}${infraSummary ? ` · ${infraSummary}` : ''}`
+            : infraSummary || undefined
+        }
       >
         <NodeConnectors />
         {nodeData.hasSubDiagramContent && (
@@ -113,7 +119,10 @@ export function IntegrationNode({ id, data, selected, width, height }: NodeProps
           </div>
         )}
         <div className="node-footer">
-          <span className="node-category">{nodeData.category}</span>
+          <span className="node-category">
+            {nodeData.category}
+            {infraSummary && !isIcon ? <span className="node-infra"> · {infraSummary}</span> : null}
+          </span>
           <div className="node-footer-badges">
             <NotesBadge notes={nodeData.properties.notes} compact title={nodeData.label} />
             <WorkItemBadge fields={nodeData.properties} compact />

@@ -65,7 +65,7 @@ import { ProjectTabs } from './components/ProjectTabs'
 import { SubTabBar } from './components/SubTabBar'
 import { TemplatePicker } from './components/TemplatePicker'
 import { getLinkedSystems } from './utils/codeLink'
-import type { ArchitectureDocument, PaletteItem, SequenceFlowStep, SystemNode, TechnicalChangeDesign } from './types'
+import type { ArchitectureDocument, ArchitectureMetadata, PaletteItem, SequenceFlowStep, SystemNode, TechnicalChangeDesign } from './types'
 import type { DiagramPath } from './types/diagram'
 import { createProjectTab, type ProjectTab } from './types/project'
 import {
@@ -187,6 +187,7 @@ function App() {
   )
   const [gitMessage, setGitMessage] = useState<string | null>(null)
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null)
+  const [focusEdgeIds, setFocusEdgeIds] = useState<string[] | null>(null)
   const [templatePickerMode, setTemplatePickerMode] = useState<'project' | 'sub-tab'>('project')
   const [aiChatMounted, setAiChatMounted] = useState(() => loadDialogStack().includes('aiDiagram'))
   const [analysisFocus, setAnalysisFocus] = useState<string | undefined>(undefined)
@@ -292,6 +293,19 @@ function App() {
       document: { ...tab.document, audit: [] },
     }))
   }, [updateActiveTab])
+
+  const handleUpdateMetadata = useCallback(
+    (patch: Partial<ArchitectureMetadata>) => {
+      setDocument(
+        (prev) => ({
+          ...prev,
+          metadata: { ...prev.metadata, ...patch, updatedAt: new Date().toISOString() },
+        }),
+        { kind: 'update', summary: 'Updated diagram infrastructure' },
+      )
+    },
+    [setDocument],
+  )
 
   const handleChangeDesigns = useCallback(
     (designs: TechnicalChangeDesign[]) => {
@@ -1764,12 +1778,21 @@ function App() {
               onDrillInto={handleDrillInto}
               onOpenSequenceHop={handleOpenSequenceHop}
               onSelectionChange={(node, edge, extras) => {
+                setSelectedEdges(extras?.selectedEdges ?? (edge ? [edge] : []))
+                if (extras?.openProperties === false) {
+                  setSelectedNode(null)
+                  setSelectedEdge(null)
+                  return
+                }
                 setSelectedNode(node)
                 setSelectedEdge(edge)
-                setSelectedEdges(extras?.selectedEdges ?? (edge ? [edge] : []))
               }}
               focusNodeId={focusNodeId}
-              onFocusComplete={() => setFocusNodeId(null)}
+              focusEdgeIds={focusEdgeIds}
+              onFocusComplete={() => {
+                setFocusNodeId(null)
+                setFocusEdgeIds(null)
+              }}
               isFullscreen={isFullscreen}
               menusHidden={menusHidden}
               onToggleFullscreen={() => void toggleFullscreen()}
@@ -1801,6 +1824,7 @@ function App() {
                   onReadSaasMetadata={() => openDialog('saas')}
                   onOpenChangeDesign={openChangeDesign}
                   onChangeDesigns={handleChangeDesigns}
+                  onUpdateMetadata={handleUpdateMetadata}
                 />
               }
             />
@@ -1966,6 +1990,22 @@ function App() {
               openDialog('settings')
             }}
             onClose={() => closeDialog('aiAnalysis')}
+            onShowIntegrations={(ids) => {
+              setFocusEdgeIds(ids)
+              closeDialog('aiAnalysis')
+            }}
+            onNoteIntegrations={(ids, note) => {
+              for (const id of ids) {
+                const current = getDiagramView(document, drillPath).integrations.find((item) => item.id === id)
+                const existing = current?.notes?.trim()
+                handleUpdateEdge(id, { notes: existing ? `${existing}\n\n${note}` : note })
+              }
+              setGitMessage(`Added simplification notes to ${ids.length} integration${ids.length === 1 ? '' : 's'}`)
+            }}
+            onRetireIntegrations={(ids) => {
+              handleUpdateEdges(ids, { changeStatus: 'retired' })
+              setGitMessage(`Marked ${ids.length} extra integration${ids.length === 1 ? '' : 's'} as retired`)
+            }}
           />
         </DialogLayer>
       )}

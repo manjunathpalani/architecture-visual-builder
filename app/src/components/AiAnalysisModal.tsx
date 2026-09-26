@@ -1,5 +1,18 @@
 import { useEffect, useState } from 'react'
-import { Check, KeyRound, Loader2, Minus, Scale, Sparkles, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import {
+  Check,
+  Coins,
+  GitMerge,
+  KeyRound,
+  Loader2,
+  Minus,
+  Scale,
+  Sparkles,
+  StickyNote,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from 'lucide-react'
 import type { ArchitectureDocument } from '../types'
 import {
   AI_PROVIDERS,
@@ -15,13 +28,19 @@ import {
   type AnalysisLensId,
   type AnalysisVerdict,
   type CapabilityAnalysis,
+  type CostForecast,
+  type IntegrationSimplification,
 } from '../utils/aiAnalysis'
+import { formatCurrency } from '../utils/architectureSimplify'
 
 interface AiAnalysisModalProps {
   document: ArchitectureDocument
   focusLabel?: string
   onManageKeys: () => void
   onClose: () => void
+  onShowIntegrations?: (ids: string[]) => void
+  onNoteIntegrations?: (ids: string[], note: string) => void
+  onRetireIntegrations?: (ids: string[]) => void
 }
 
 const VERDICT_LABEL: Record<AnalysisVerdict, string> = {
@@ -30,7 +49,15 @@ const VERDICT_LABEL: Record<AnalysisVerdict, string> = {
   'at-risk': 'At risk',
 }
 
-export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }: AiAnalysisModalProps) {
+export function AiAnalysisModal({
+  document,
+  focusLabel,
+  onManageKeys,
+  onClose,
+  onShowIntegrations,
+  onNoteIntegrations,
+  onRetireIntegrations,
+}: AiAnalysisModalProps) {
   const initial = loadAiSettings()
   const [provider, setProvider] = useState<AiProviderId>(initial.selectedProvider)
   const [status, setStatus] = useState<AiStatus | null>(null)
@@ -78,7 +105,7 @@ export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }:
             </h2>
             <p>
               Review {document.metadata.name} with {info.shortLabel}
-              {focusLabel ? ` · emphasis on ${focusLabel}` : ''}. Pros and cons per capability.
+              {focusLabel ? ` · emphasis on ${focusLabel}` : ''}. Cost forecast and integration simplifications included.
             </p>
           </div>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -154,7 +181,7 @@ export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }:
           {!loading && !analysis && !error && (
             <div className="ai-analysis-empty">
               <Scale size={22} />
-              <p>Pick a lens and run analysis to see pros and cons for each capability.</p>
+              <p>Pick a lens and run analysis to forecast cost and find integrations you can simplify.</p>
             </div>
           )}
           {analysis && (
@@ -175,6 +202,61 @@ export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }:
                 </div>
                 <p>{analysis.summary}</p>
               </div>
+
+              <CostForecastCard forecast={analysis.costForecast} />
+
+              {analysis.simplifications.length > 0 && (
+                <section className="ai-simplify-section">
+                  <h4>
+                    <GitMerge size={15} />
+                    Simplify integrations
+                  </h4>
+                  <p className="code-link-hint">
+                    Duplicate hops, shortcuts, and long chains you can collapse. Show on canvas, attach a note, or mark
+                    extras as retired.
+                  </p>
+                  <div className="ai-simplify-list">
+                    {analysis.simplifications.map((item) => (
+                      <SimplificationCard
+                        key={item.id}
+                        item={item}
+                        currency={analysis.costForecast.currency}
+                        onShow={
+                          onShowIntegrations && item.integrationIds.length > 0
+                            ? () => {
+                                onShowIntegrations(item.integrationIds)
+                                onClose()
+                              }
+                            : undefined
+                        }
+                        onNote={
+                          onNoteIntegrations && item.integrationIds.length > 0
+                            ? () =>
+                                onNoteIntegrations(
+                                  item.integrationIds,
+                                  [
+                                    `## AI simplification: ${item.title}`,
+                                    item.problem,
+                                    `Action: ${item.action}`,
+                                    item.savingsMonthly > 0
+                                      ? `Indicative saving: ${formatCurrency(item.savingsMonthly, analysis.costForecast.currency)} / month`
+                                      : '',
+                                  ]
+                                    .filter(Boolean)
+                                    .join('\n\n'),
+                                )
+                            : undefined
+                        }
+                        onRetire={
+                          onRetireIntegrations && item.integrationIds.length > 1
+                            ? () => onRetireIntegrations(item.integrationIds.slice(1))
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <div className="ai-capability-list">
                 {analysis.capabilities.map((capability) => (
@@ -243,5 +325,107 @@ export function AiAnalysisModal({ document, focusLabel, onManageKeys, onClose }:
         </div>
       </div>
     </div>
+  )
+}
+
+function CostForecastCard({ forecast }: { forecast: CostForecast }) {
+  const hasRange = forecast.monthlyHigh > 0 || forecast.monthlyExpected > 0 || forecast.declaredMonthly > 0
+  if (!hasRange) return null
+  return (
+    <section className="ai-cost-card">
+      <header>
+        <h4>
+          <Coins size={15} />
+          Predicted monthly cost
+        </h4>
+        <span className={`ai-cost-confidence confidence-${forecast.confidence}`}>{forecast.confidence} confidence</span>
+      </header>
+      <div className="ai-cost-figures">
+        <div>
+          <em>Expected</em>
+          <strong>{formatCurrency(forecast.monthlyExpected, forecast.currency)}</strong>
+        </div>
+        <div>
+          <em>Range</em>
+          <strong>
+            {formatCurrency(forecast.monthlyLow, forecast.currency)} –{' '}
+            {formatCurrency(forecast.monthlyHigh, forecast.currency)}
+          </strong>
+        </div>
+        {forecast.declaredMonthly > 0 && (
+          <div>
+            <em>Declared on components</em>
+            <strong>{formatCurrency(forecast.declaredMonthly, forecast.currency)}</strong>
+          </div>
+        )}
+      </div>
+      {forecast.basis && <p>{forecast.basis}</p>}
+      {forecast.drivers.length > 0 && (
+        <ul className="ai-cost-drivers">
+          {forecast.drivers.map((driver) => (
+            <li key={`${driver.name}-${driver.monthly}`}>
+              <span>{driver.name}</span>
+              <strong>{formatCurrency(driver.monthly, forecast.currency)}</strong>
+              {driver.note && <em>{driver.note}</em>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+function SimplificationCard({
+  item,
+  currency,
+  onShow,
+  onNote,
+  onRetire,
+}: {
+  item: IntegrationSimplification
+  currency: string
+  onShow?: () => void
+  onNote?: () => void
+  onRetire?: () => void
+}) {
+  return (
+    <article className="ai-simplify-card">
+      <header>
+        <h5>{item.title}</h5>
+        <span className={`ai-effort-badge effort-${item.effort}`}>{item.effort} effort</span>
+      </header>
+      {item.problem && <p>{item.problem}</p>}
+      <p>
+        <strong>Simplify:</strong> {item.action}
+      </p>
+      <div className="ai-simplify-meta">
+        {item.integrationLabels.length > 0 && <span>{item.integrationLabels.join(' · ')}</span>}
+        {item.savingsMonthly > 0 && (
+          <span>Save ~{formatCurrency(item.savingsMonthly, currency)}/mo</span>
+        )}
+        {item.removesHops > 0 && <span>Remove {item.removesHops} hop{item.removesHops === 1 ? '' : 's'}</span>}
+        {item.source === 'structure' && <span>From diagram structure</span>}
+      </div>
+      {(onShow || onNote || onRetire) && (
+        <div className="ai-simplify-actions">
+          {onShow && (
+            <button type="button" className="btn-secondary" onClick={onShow}>
+              Show on canvas
+            </button>
+          )}
+          {onNote && (
+            <button type="button" className="btn-secondary" onClick={onNote}>
+              <StickyNote size={13} />
+              Add as note
+            </button>
+          )}
+          {onRetire && (
+            <button type="button" className="btn-secondary" onClick={onRetire}>
+              Mark extras retired
+            </button>
+          )}
+        </div>
+      )}
+    </article>
   )
 }

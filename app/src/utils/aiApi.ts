@@ -1,7 +1,7 @@
 import { callAiApi, isVsCodeHost } from './vscodeHost'
 
 export async function aiFetch(
-  path: 'status' | 'verify' | 'diagram' | 'analyze' | 'instruct' | 'requirements' | 'sad',
+  path: 'status' | 'verify' | 'diagram' | 'analyze' | 'impact' | 'instruct' | 'requirements' | 'sad',
   init?: { method?: string; body?: string },
 ): Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }> {
   if (isVsCodeHost()) {

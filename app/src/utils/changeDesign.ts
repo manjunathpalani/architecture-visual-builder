@@ -211,7 +211,7 @@ function walkSystems(systems: SystemNode[], trail: string[], out: DesignableSyst
   }
 }
 
-function flattenIntegrations(systems: SystemNode[], integrations: Integration[]): Integration[] {
+export function flattenIntegrations(systems: SystemNode[], integrations: Integration[]): Integration[] {
   const rows = [...integrations]
   for (const system of systems) {
     if (system.subDiagram) {

@@ -33,15 +33,21 @@ import {
 } from '@xyflow/react'
 import { Pause, Play, SlidersHorizontal, Sparkles } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
-import type { DrawingShapeKind, PaletteItem } from '../types'
+import type { ArchitectureDocument, DrawingShapeKind, PaletteItem, SequenceFlowStep } from '../types'
 import { getFlowNodeType } from '../types'
+import { inheritInfrastructure } from '../utils/cloudInfrastructure'
+import {
+  descendantIds,
+  groupFlowNodes,
+  shiftInternalWaypoints,
+  ungroupFlowNodes,
+} from '../utils/nodeGrouping'
 import {
   generateId,
   type EdgeFocusRelation,
   type IntegrationEdgeData,
   type IntegrationNodeData,
 } from '../utils/jsonIO'
-import type { ArchitectureDocument, SequenceFlowStep } from '../types'
 import type { DiagramPath, DrawingElement, DrawingPoint, DrawingTool } from '../types/diagram'
 import { isShapeDrawingTool, shapeKindFromTool } from '../types/diagram'
 import {
@@ -506,11 +512,13 @@ interface IntegrationCanvasProps {
     extras?: {
       selectedNodes: Node<IntegrationNodeData>[]
       selectedEdges: Edge<IntegrationEdgeData>[]
+      openProperties?: boolean
     },
   ) => void
   onDrillInto: (systemId: string, label: string, kind?: 'system' | 'integration') => void
   onOpenSequenceHop?: (edgeId: string, step: SequenceFlowStep) => void
   focusNodeId?: string | null
+  focusEdgeIds?: string[] | null
   onFocusComplete?: () => void
   isFullscreen?: boolean
   menusHidden?: boolean
@@ -539,6 +547,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   onDrillInto,
   onOpenSequenceHop,
   focusNodeId: externalFocusNodeId,
+  focusEdgeIds: externalFocusEdgeIds,
   onFocusComplete,
   isFullscreen = false,
   menusHidden = false,
@@ -632,6 +641,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     start: { x: number; y: number }
     originals: DrawingElement[]
   } | null>(null)
+  const groupDragRef = useRef<{ last: { x: number; y: number }; members: Set<string> } | null>(null)
 
   const applyDrawingSelection = useCallback((ids: string[], primary?: string | null) => {
     const unique = [...new Set(ids)]
@@ -703,6 +713,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [propertiesPlacement, setPropertiesPlacement] = useState<PropertiesPlacement>(loadPropertiesPlacement)
   const [flyoutDismissed, setFlyoutDismissed] = useState(false)
+  const marqueeSelectingRef = useRef(false)
 
   const initial = documentToFlowAtPath(document, diagramPath, stateView)
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes)
@@ -1814,7 +1825,11 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           systemType: item.type,
           label: item.label,
           category: item.category,
-          properties: { ...(item.defaultProperties ?? {}) },
+          properties: inheritInfrastructure(
+            document.metadata.infrastructure,
+            item.type,
+            item.defaultProperties ?? {},
+          ),
           canDrillIn: item.type !== 'note' && item.type !== 'group' && item.type !== 'shape',
         },
         style: {
@@ -1829,7 +1844,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         return updated
       })
     },
-    [edges, isDrawMode, layoutLocked, loadImageFiles, placeImageAt, screenToFlowPosition, setNodes, syncDocument],
+    [document.metadata.infrastructure, edges, isDrawMode, layoutLocked, loadImageFiles, placeImageAt, screenToFlowPosition, setNodes, syncDocument],
   )
 
   const persistNodePositions = useCallback(() => {
@@ -1846,6 +1861,11 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const onNodeDragStart = useCallback(
     (_event: unknown, node: Node) => {
+      const selected = nodesRef.current.filter((item) => item.selected || item.id === node.id).map((item) => item.id)
+      groupDragRef.current = {
+        last: { ...node.position },
+        members: descendantIds(selected, nodesRef.current),
+      }
       if (selectedDrawingIdsRef.current.size === 0) {
         drawingMoveWithNodesRef.current = null
         return
@@ -1864,6 +1884,15 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
   )
 
   const onNodeDrag = useCallback((_event: unknown, node: Node) => {
+    const drag = groupDragRef.current
+    if (drag) {
+      const dx = node.position.x - drag.last.x
+      const dy = node.position.y - drag.last.y
+      if (dx !== 0 || dy !== 0) {
+        drag.last = { ...node.position }
+        setEdges((current) => shiftInternalWaypoints(current, drag.members, dx, dy))
+      }
+    }
     const move = drawingMoveWithNodesRef.current
     if (!move) return
     const dx = node.position.x - move.start.x
@@ -1876,7 +1905,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       })
     }
     setDrawingOverrides(next)
-  }, [])
+  }, [setEdges])
 
   const finishNodeTitleEdit = useCallback((nodeId: string, label: string) => {
     setNodes((current) => {
@@ -1891,41 +1920,23 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const groupSelectedNodes = useCallback(() => {
     if (layoutLocked) return
-    const selectedNodes = nodesRef.current.filter((node) => node.selected && node.type !== 'group')
-    if (selectedNodes.length === 0) return
-
-    const bounds = selectedNodes.reduce(
-      (result, node) => {
-        const width = Number(node.measured?.width ?? node.style?.width ?? 180)
-        const height = Number(node.measured?.height ?? node.style?.height ?? 90)
-        return {
-          left: Math.min(result.left, node.position.x),
-          top: Math.min(result.top, node.position.y),
-          right: Math.max(result.right, node.position.x + width),
-          bottom: Math.max(result.bottom, node.position.y + height),
-        }
-      },
-      { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity },
+    const selectedIds = new Set(
+      nodesRef.current.filter((node) => node.selected && node.type !== 'group' && node.data.systemType !== 'group').map((node) => node.id),
     )
-    const group: Node<IntegrationNodeData> = {
-      id: generateId('group'),
-      type: 'group',
-      position: { x: bounds.left - 24, y: bounds.top - 36 },
-      zIndex: -1,
-      data: {
-        systemType: 'group',
-        label: 'Group',
-        category: 'Infrastructure',
-        properties: {},
-        canDrillIn: false,
-      },
-      style: {
-        width: bounds.right - bounds.left + 48,
-        height: bounds.bottom - bounds.top + 72,
-      },
-    }
+    if (selectedIds.size === 0) return
     setNodes((current) => {
-      const updated = [...current, group]
+      const updated = groupFlowNodes(current, selectedIds, generateId('group'))
+      syncDocument(updated, edgesRef.current)
+      return updated
+    })
+  }, [layoutLocked, setNodes, syncDocument])
+
+  const ungroupSelectedNodes = useCallback(() => {
+    if (layoutLocked) return
+    const selectedIds = new Set(nodesRef.current.filter((node) => node.selected).map((node) => node.id))
+    if (selectedIds.size === 0) return
+    setNodes((current) => {
+      const updated = ungroupFlowNodes(current, selectedIds)
       syncDocument(updated, edgesRef.current)
       return updated
     })
@@ -1957,7 +1968,11 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       nds.map((n) => ({ ...n, selected: n.id === externalFocusNodeId })),
     )
     applyFlowFocus(externalFocusNodeId)
-    onSelectionChange(node, null)
+    onSelectionChange(node, null, {
+      selectedNodes: [node],
+      selectedEdges: [],
+      openProperties: true,
+    })
 
     const width = Number(node.measured?.width ?? node.style?.width ?? 180)
     const height = Number(node.measured?.height ?? node.style?.height ?? 90)
@@ -1967,6 +1982,30 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     })
     onFocusComplete?.()
   }, [applyFlowFocus, externalFocusNodeId, getNode, setCenter, setFlowNodes, onSelectionChange, onFocusComplete])
+
+  useEffect(() => {
+    if (!externalFocusEdgeIds?.length) return
+    const wanted = new Set(externalFocusEdgeIds)
+    const match = edgesRef.current.filter((edge) => wanted.has(edge.id))
+    if (match.length === 0) {
+      onFocusComplete?.()
+      return
+    }
+    setEdges((current) => current.map((edge) => ({ ...edge, selected: wanted.has(edge.id) })))
+    setFlowNodes((current) => current.map((node) => ({ ...node, selected: false })))
+    const primary = match[0]
+    applyFlowFocus(null, primary.id)
+    onSelectionChange(null, primary, { selectedNodes: [], selectedEdges: match, openProperties: true })
+    const source = getNode(primary.source)
+    const target = getNode(primary.target)
+    if (source && target) {
+      setCenter((source.position.x + target.position.x) / 2, (source.position.y + target.position.y) / 2, {
+        zoom: 1.05,
+        duration: 400,
+      })
+    }
+    onFocusComplete?.()
+  }, [applyFlowFocus, externalFocusEdgeIds, getNode, onFocusComplete, onSelectionChange, setCenter, setEdges, setFlowNodes])
 
   const onSelectionChangeHandler = useCallback(
     ({ nodes: selNodes, edges: selEdges }: { nodes: Node[]; edges: Edge[] }) => {
@@ -1996,16 +2035,48 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         applyFlowFocus(null)
       }
 
-      onSelectionChange(node, edge, {
+      const fromMarquee = marqueeSelectingRef.current
+      const openProperties = !fromMarquee && selNodes.length + selEdges.length === 1
+      onSelectionChange(fromMarquee ? null : node, fromMarquee ? null : edge, {
         selectedNodes: selNodes as Node<IntegrationNodeData>[],
         selectedEdges: selEdges as Edge<IntegrationEdgeData>[],
+        openProperties,
       })
     },
     [applyDrawingSelection, applyFlowFocus, isDrawMode, isRectTool, isShapeTool, onSelectionChange],
   )
 
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node<IntegrationNodeData>) => {
+      if (isDrawMode && !isShapeTool && !isRectTool) return
+      marqueeSelectingRef.current = false
+      applyFlowFocus(node.id)
+      onSelectionChange(node, null, {
+        selectedNodes: [node],
+        selectedEdges: [],
+        openProperties: true,
+      })
+    },
+    [applyFlowFocus, isDrawMode, isRectTool, isShapeTool, onSelectionChange],
+  )
+
+  const onEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge<IntegrationEdgeData>) => {
+      if (isDrawMode && !isShapeTool && !isRectTool) return
+      marqueeSelectingRef.current = false
+      applyFlowFocus(null, edge.id)
+      onSelectionChange(null, edge, {
+        selectedNodes: [],
+        selectedEdges: [edge],
+        openProperties: true,
+      })
+    },
+    [applyFlowFocus, isDrawMode, isRectTool, isShapeTool, onSelectionChange],
+  )
+
   const onPaneClick = useCallback(
     (event: React.MouseEvent) => {
+      marqueeSelectingRef.current = false
       if (drawTool !== 'select') return
       const point = flowPoint(event)
       const hit = [...drawings].reverse().find((d) => hitTestDrawing(d, point))
@@ -2143,15 +2214,40 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={() => {
+          groupDragRef.current = null
           persistNodePositions()
           persistMovedDrawings()
         }}
+        onSelectionDragStart={(_event, nodes) => {
+          const lead = nodes[0]
+          if (!lead) return
+          groupDragRef.current = {
+            last: { ...lead.position },
+            members: descendantIds(nodes.map((item) => item.id), nodesRef.current),
+          }
+        }}
+        onSelectionDrag={(_event, nodes) => {
+          const drag = groupDragRef.current
+          const lead = nodes[0]
+          if (!drag || !lead) return
+          const dx = lead.position.x - drag.last.x
+          const dy = lead.position.y - drag.last.y
+          if (dx === 0 && dy === 0) return
+          drag.last = { ...lead.position }
+          setEdges((current) => shiftInternalWaypoints(current, drag.members, dx, dy))
+        }}
         onSelectionDragStop={() => {
+          groupDragRef.current = null
           persistNodePositions()
           persistMovedDrawings()
         }}
         onNodeDoubleClick={onNodeDoubleClick}
+        onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
+        onSelectionStart={() => {
+          marqueeSelectingRef.current = true
+        }}
         onSelectionChange={onSelectionChangeHandler}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -2473,8 +2569,10 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         onLayoutApplied={syncDocument}
         layoutLocked={layoutLocked}
         onToggleLayoutLock={toggleLayoutLock}
-        selectedNodeCount={nodes.filter((node) => node.selected && node.type !== 'group').length}
+        selectedNodeCount={nodes.filter((node) => node.selected && node.type !== 'group' && node.data.systemType !== 'group').length}
         onGroupSelection={groupSelectedNodes}
+        onUngroupSelection={ungroupSelectedNodes}
+        canUngroup={nodes.some((node) => node.selected && (node.type === 'group' || node.parentId))}
         onSelectAll={selectAllComponents}
         onSelectAllIntegrations={selectAllIntegrations}
         selectedIntegrationCount={edges.filter((edge) => edge.selected).length}

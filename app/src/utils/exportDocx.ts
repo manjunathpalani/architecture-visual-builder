@@ -152,12 +152,12 @@ export async function buildArchitectureDocx(
   )
 
   addHeading('System catalogue')
-  children.push(body('The catalogue lists every modelled system, including vendor, environment, and the role it plays.'))
+  children.push(body('The catalogue lists every modelled system, including vendor, region, SKU, and the role it plays.'))
   children.push(
     makeTable(
-      ['System', 'Type', 'Category', 'Vendor', 'Role'],
-      [2200, 1400, 1600, 1600, CONTENT_W - 6800],
-      brief.systems.map((s) => [s.label, s.typeLabel, s.category, s.vendor ?? '—', s.description]),
+      ['System', 'Type', 'Region', 'SKU', 'Role'],
+      [2000, 1400, 1600, 1600, CONTENT_W - 6600],
+      brief.systems.map((s) => [s.label, s.typeLabel, s.region ?? '—', s.sku ?? '—', s.description]),
     ),
   )
 

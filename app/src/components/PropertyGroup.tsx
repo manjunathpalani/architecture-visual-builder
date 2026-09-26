@@ -14,6 +14,8 @@ export type PropertyGroupId =
   | 'line'
   | 'sequence'
   | 'notes'
+  | 'infra'
+  | 'nfr'
   | 'spec'
 
 export const SYSTEM_PROPERTY_GROUPS: PropertyGroupId[] = [
@@ -25,6 +27,8 @@ export const SYSTEM_PROPERTY_GROUPS: PropertyGroupId[] = [
   'links',
   'structure',
   'notes',
+  'infra',
+  'nfr',
 ]
 
 export const EDGE_PROPERTY_GROUPS: PropertyGroupId[] = ['identity', 'line', 'sequence', 'notes', 'spec']

@@ -154,6 +154,21 @@ export interface SystemProperties {
   environment?: string
   region?: string
   owner?: string
+  cloudProvider?: string
+  availabilityZones?: string
+  subscription?: string
+  resourceGroup?: string
+  resourceName?: string
+  sku?: string
+  skuTier?: string
+  instanceSize?: string
+  storageSize?: string
+  network?: string
+  subnet?: string
+  haMode?: string
+  sla?: string
+  estimatedCost?: string
+  resourceId?: string
   description?: string
   color?: string
   fontSize?: string
@@ -190,6 +205,8 @@ export interface SystemNode {
   position: Position
   properties?: SystemProperties
   subDiagram?: SubDiagram
+  /** Parent group id when this component is inside a movable group */
+  parentId?: string
 }
 
 export interface SequenceFlowStep {
@@ -234,11 +251,21 @@ export interface Integration {
   adoWorkItemUrl?: string
 }
 
+export interface DiagramInfrastructure {
+  cloudProvider?: string
+  primaryRegion?: string
+  landingZone?: string
+  subscription?: string
+  environment?: string
+}
+
 export interface ArchitectureMetadata {
   name: string
   description?: string
   version: string
   updatedAt: string
+  /** Physical cloud landing zone for this diagram. */
+  infrastructure?: DiagramInfrastructure
 }
 
 export type AuditKind =
@@ -320,6 +347,9 @@ export interface TechnicalChangeDesign {
   updatedAt: string
   stories?: FeatureUserStory[]
   tasks: ComponentChangeTask[]
+  /** Last code-impact analysis for this feature */
+  impactReport?: unknown
+  impactAnalyzedAt?: string
 }
 
 export interface ArchitectureDocument {

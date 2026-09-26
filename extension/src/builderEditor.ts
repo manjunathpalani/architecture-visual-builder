@@ -6,6 +6,7 @@ import {
   isArchitectureJson,
   openWorkspacePath,
   runLinkedAgent,
+  scanWorkspaceCode,
   suggestedArchitectureUri,
 } from './agent'
 import { handleAiApi } from './aiProxy'
@@ -22,6 +23,7 @@ interface WebviewMessage {
   gitPath?: string
   gitRepo?: string
   path?: string
+  roots?: Array<{ label: string; path?: string; systemId?: string }>
   apply?: boolean
   changeKind?: 'new' | 'update' | 'retire'
   scope?: 'feature' | 'story' | 'component'
@@ -142,6 +144,25 @@ export class BuilderEditorProvider implements vscode.CustomTextEditorProvider {
         case 'openPath':
           if (message.path) await openWorkspacePath(message.path)
           return
+        case 'scanWorkspace': {
+          const requestId = message.requestId ?? ''
+          try {
+            const result = await scanWorkspaceCode(message.roots ?? [])
+            webviewPanel.webview.postMessage({
+              type: 'workspaceScanResult',
+              requestId,
+              files: result.files,
+              notes: result.notes,
+            })
+          } catch (err) {
+            webviewPanel.webview.postMessage({
+              type: 'workspaceScanResult',
+              requestId,
+              error: err instanceof Error ? err.message : 'Workspace scan failed',
+            })
+          }
+          return
+        }
         case 'aiApi': {
           const requestId = message.requestId ?? ''
           const result = await handleAiApi(message.path ?? '', message.body)

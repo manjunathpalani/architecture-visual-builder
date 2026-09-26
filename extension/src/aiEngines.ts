@@ -90,15 +90,39 @@ JSON shape:
       "cons": ["concrete weakness, risk, or gap"]
     }
   ],
+  "costForecast": {
+    "currency": "USD",
+    "monthlyLow": 0,
+    "monthlyExpected": 0,
+    "monthlyHigh": 0,
+    "confidence": "low" | "medium" | "high",
+    "basis": "one sentence on how the forecast was derived",
+    "drivers": [{ "name": "service or SKU", "monthly": 0, "note": "why this costs" }]
+  },
+  "simplifications": [
+    {
+      "id": "stable-id",
+      "title": "short change",
+      "problem": "why this integration (or set) is wasteful",
+      "action": "how to simplify it",
+      "integrationIds": ["integration-id"],
+      "integrationLabels": ["flow name"],
+      "savingsMonthly": 0,
+      "removesHops": 0,
+      "effort": "low" | "medium" | "high"
+    }
+  ],
   "risks": ["cross-cutting risk"],
   "recommendations": ["specific next action"]
 }
 
 Rules:
 - Group the architecture into 4 to 8 capabilities (not one card per box unless the diagram is tiny).
-- Every capability MUST have at least 2 pros and 2 cons. Be specific to the named systems, protocols, and flows — no generic filler.
+- Every capability MUST have at least 2 pros and 2 cons. Be specific to the named systems, protocols, SKUs, regions, and flows — no generic filler.
+- ALWAYS return costForecast. Use declared estimatedCost and SKU/region when present. If missing, estimate typical list prices for the named cloud services and say so in basis. Confidence is high only when most components have SKU or estimatedCost.
+- ALWAYS return simplifications (2 to 6). Prefer: duplicate flows between the same pair, SaaS-to-system-of-record shortcuts, high fan-out without a process API/event bus, long inner hop chains, overlapping REST+SOAP jobs. Use real integration ids from context. savingsMonthly is indicative USD/month from fewer runtimes, mappings, and SKUs.
 - Pros are strengths of the current design. Cons are gaps, coupling, single points of failure, cost, security, or operational burden.
-- If the user names a focus lens (security, integration, cost, data, AI, resilience), weight the review toward that lens but still cover the landscape.
+- If the user names a focus lens (security, integration, cost, simplify, data, AI, resilience), weight the review toward that lens but still cover the landscape.
 - If they name a system to emphasize, give that system (or the capability it belongs to) a dedicated card.
 - verdict: strong = sound with minor gaps; balanced = workable with material tradeoffs; at-risk = serious gaps or fragility.
 - Do not invent systems that are not in the architecture. Do not invent credentials.`
@@ -162,6 +186,49 @@ Name concrete paths. Be specific to the named component and the feature. Do not 
 
 export async function completeAnalysis(request: EngineRequest): Promise<string> {
   return completeDiagram({ ...request, systemPrompt: ANALYSIS_SYSTEM_PROMPT })
+}
+
+export const IMPACT_SYSTEM_PROMPT = `You are a staff engineer reviewing planned architecture work against the current codebase.
+Return ONLY valid JSON. No markdown, no commentary, no code fences.
+
+JSON shape:
+{
+  "title": "short impact title",
+  "summary": "2-4 sentences on what existing systems must change",
+  "verdict": "contained" | "cross-cutting" | "high-risk",
+  "systems": [
+    {
+      "systemId": "id from context",
+      "systemLabel": "component name",
+      "changeKind": "new" | "update" | "retire",
+      "impact": "what must change in this existing system",
+      "files": ["repo-relative paths likely touched"],
+      "requiredChanges": ["concrete edit, add, or remove"],
+      "risks": ["breakage, contract, test, or rollout risk"],
+      "effort": "low" | "medium" | "high"
+    }
+  ],
+  "integrations": [
+    {
+      "label": "flow name",
+      "from": "source system",
+      "to": "target system",
+      "impact": "contract, version, mapping, or runtime change"
+    }
+  ],
+  "missingCode": ["systems with no matching code in the snapshot"],
+  "recommendedOrder": ["safe implementation order by system label"]
+}
+
+Rules:
+- Ground file paths in the code snapshot. If a path is a guess, prefix it with "guess:".
+- Prefer existing files over inventing new modules unless changeKind is new.
+- Call out integration contract changes between systems (API, events, schema).
+- verdict contained = mostly local; cross-cutting = several systems/contracts; high-risk = breaking public APIs, data, or shared libraries.
+- Do not invent repositories or systems that are not in the context.`
+
+export async function completeImpact(request: EngineRequest): Promise<string> {
+  return completeDiagram({ ...request, systemPrompt: IMPACT_SYSTEM_PROMPT })
 }
 
 export async function completeInstruction(request: EngineRequest): Promise<string> {

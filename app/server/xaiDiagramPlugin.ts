@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { loadEnv } from 'vite'
-import { completeAnalysis, completeDiagram, completeInstruction, completeRequirements, completeSad, verifyProviderKey, type AiProviderId } from './aiEngines'
+import { completeAnalysis, completeDiagram, completeImpact, completeInstruction, completeRequirements, completeSad, verifyProviderKey, type AiProviderId } from './aiEngines'
 
 const PROVIDERS: Array<{
   id: AiProviderId
@@ -56,6 +56,10 @@ function createHandler(env: Record<string, string>) {
     }
     if (req.method === 'POST' && (url === '/analyze' || url === '/analyze/')) {
       void handleAnalyze(req, res, env)
+      return
+    }
+    if (req.method === 'POST' && (url === '/impact' || url === '/impact/')) {
+      void handleImpact(req, res, env)
       return
     }
     if (req.method === 'POST' && (url === '/instruct' || url === '/instruct/')) {
@@ -298,6 +302,72 @@ async function handleAnalyze(req: IncomingMessage, res: ServerResponse, env: Rec
     const status = typeof err === 'object' && err && 'status' in err ? Number((err as { status?: number }).status) : 502
     json(res, Number.isFinite(status) && status >= 400 ? status : 502, {
       error: err instanceof Error ? err.message : `${provider.label} analysis failed`,
+    })
+  }
+}
+
+async function handleImpact(req: IncomingMessage, res: ServerResponse, env: Record<string, string>) {
+  let body: {
+    prompt?: string
+    context?: string
+    provider?: string
+    apiKey?: string
+    model?: string
+    azureEndpoint?: string
+    azureDeployment?: string
+  }
+  try {
+    body = JSON.parse(await readBody(req)) as typeof body
+  } catch {
+    json(res, 400, { error: 'Invalid JSON body' })
+    return
+  }
+
+  const providerId = (body.provider ?? 'spacexai') as AiProviderId
+  const provider = PROVIDERS.find((p) => p.id === providerId)
+  if (!provider || !PROVIDER_IDS.has(providerId)) {
+    json(res, 400, { error: 'Unknown AI engine' })
+    return
+  }
+
+  const context = body.context?.trim() ?? ''
+  if (!context) {
+    json(res, 400, { error: 'Add feature work and code context before running impact analysis.' })
+    return
+  }
+  if (context.length > 24000) {
+    json(res, 400, { error: 'Impact context is too large. Narrow gitPath on the components and try again.' })
+    return
+  }
+
+  const prompt = (body.prompt?.trim() || 'Analyze code impact of this architecture change.').slice(0, 4000)
+  const apiKey = engineApiKey(env, provider, body.apiKey)
+  if (!apiKey) {
+    json(res, 401, {
+      error: `No ${provider.label} key configured. Set ${provider.envKey} in app/.env or paste a key in AI Engines.`,
+    })
+    return
+  }
+
+  const model = body.model?.trim() || envValue(env, provider.envModel ?? '') || provider.defaultModel
+  const azureEndpoint = body.azureEndpoint?.trim() || envValue(env, 'AZURE_OPENAI_ENDPOINT')
+  const azureDeployment = body.azureDeployment?.trim() || envValue(env, 'AZURE_OPENAI_DEPLOYMENT')
+
+  try {
+    const text = await completeImpact({
+      provider: providerId,
+      prompt,
+      context,
+      apiKey,
+      model,
+      azureEndpoint,
+      azureDeployment,
+    })
+    json(res, 200, { text, model, provider: providerId })
+  } catch (err) {
+    const status = typeof err === 'object' && err && 'status' in err ? Number((err as { status?: number }).status) : 502
+    json(res, Number.isFinite(status) && status >= 400 ? status : 502, {
+      error: err instanceof Error ? err.message : `${provider.label} impact analysis failed`,
     })
   }
 }

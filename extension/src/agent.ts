@@ -160,6 +160,59 @@ export function suggestedArchitectureUri(): vscode.Uri {
   return vscode.Uri.file(path.join(os.homedir(), name))
 }
 
+export async function scanWorkspaceCode(
+  roots: Array<{ label: string; path?: string; systemId?: string }>,
+): Promise<{
+  files: Array<{ path: string; systemId?: string; systemLabel?: string; excerpt?: string }>
+  notes: string[]
+}> {
+  const folders = vscode.workspace.workspaceFolders ?? []
+  if (folders.length === 0) {
+    return { files: [], notes: ['No folder is open in this VS Code window. File → Open Folder, then scan again.'] }
+  }
+  const exclude = '{**/node_modules/**,**/.git/**,**/dist/**,**/build/**,**/.next/**,**/bin/**,**/obj/**}'
+  const files: Array<{ path: string; systemId?: string; systemLabel?: string; excerpt?: string }> = []
+  const notes: string[] = []
+  const glob = '{ts,tsx,js,jsx,mjs,cjs,py,cs,java,kt,go,rb,php,json,yml,yaml,xml,csproj,gradle,tf,bicep,md}'
+  for (const root of roots.length ? roots : [{ label: folders[0].name, path: '' }]) {
+    const trimmed = (root.path ?? '').replace(/^\/+|\/+$/g, '').replace(/\\/g, '/')
+    const pattern = trimmed ? `${trimmed}/**/*.${glob}` : `**/*.${glob}`
+    try {
+      const hits = await vscode.workspace.findFiles(pattern, exclude, 40)
+      if (hits.length === 0) {
+        notes.push(`No files matched ${trimmed || 'workspace'} for ${root.label}.`)
+        continue
+      }
+      let excerpts = 0
+      for (const uri of hits) {
+        const rel = vscode.workspace.asRelativePath(uri)
+        let excerpt: string | undefined
+        if (excerpts < 8) {
+          try {
+            const bytes = await vscode.workspace.fs.readFile(uri)
+            const text = Buffer.from(bytes).toString('utf8')
+            if (text.length < 120000) {
+              excerpt = text.slice(0, 2200)
+              excerpts += 1
+            }
+          } catch {
+            excerpt = undefined
+          }
+        }
+        files.push({
+          path: rel,
+          systemId: root.systemId,
+          systemLabel: root.label,
+          excerpt,
+        })
+      }
+    } catch (err) {
+      notes.push(`${root.label}: ${err instanceof Error ? err.message : 'scan failed'}`)
+    }
+  }
+  return { files, notes }
+}
+
 export async function openWorkspacePath(gitPath: string): Promise<void> {
   const raw = gitPath.trim().replace(/^["']|["']$/g, '')
   if (!raw) return

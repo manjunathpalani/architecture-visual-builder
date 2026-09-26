@@ -1,6 +1,11 @@
 import type { ArchitectureDocument, Integration, SystemNode } from '../types'
 import { getEngineApiKey, getProvider, loadAiSettings, type AiProviderId } from './aiProviders'
 import { aiFetch, aiUnreachableMessage } from './aiApi'
+import {
+  collectDeclaredCosts,
+  detectIntegrationSimplifications,
+  formatCurrency,
+} from './architectureSimplify'
 
 export type AnalysisVerdict = 'strong' | 'balanced' | 'at-risk'
 
@@ -9,6 +14,7 @@ export type AnalysisLensId =
   | 'integration'
   | 'security'
   | 'cost'
+  | 'simplify'
   | 'resilience'
   | 'data'
   | 'ai'
@@ -17,7 +23,8 @@ export const ANALYSIS_LENSES: Array<{ id: AnalysisLensId; label: string; hint: s
   { id: 'overall', label: 'Overall', hint: 'Balance of the whole landscape' },
   { id: 'integration', label: 'Integration', hint: 'Coupling, protocols, and contracts' },
   { id: 'security', label: 'Security', hint: 'Identity, exposure, and data protection' },
-  { id: 'cost', label: 'Cost & ops', hint: 'Run cost, complexity, operations' },
+  { id: 'cost', label: 'Cost', hint: 'Monthly run-cost forecast from SKUs and services' },
+  { id: 'simplify', label: 'Simplify', hint: 'Integrations to merge, retire, or reroute' },
   { id: 'resilience', label: 'Resilience', hint: 'Failure modes and recovery' },
   { id: 'data', label: 'Data', hint: 'Sources of truth and movement' },
   { id: 'ai', label: 'AI / GenAI', hint: 'Grounding, safety, and model ops' },
@@ -31,6 +38,36 @@ export interface CapabilityAssessment {
   cons: string[]
 }
 
+export interface CostDriver {
+  name: string
+  monthly: number
+  note: string
+}
+
+export interface CostForecast {
+  currency: string
+  monthlyLow: number
+  monthlyExpected: number
+  monthlyHigh: number
+  confidence: 'low' | 'medium' | 'high'
+  basis: string
+  declaredMonthly: number
+  drivers: CostDriver[]
+}
+
+export interface IntegrationSimplification {
+  id: string
+  title: string
+  problem: string
+  action: string
+  integrationIds: string[]
+  integrationLabels: string[]
+  savingsMonthly: number
+  removesHops: number
+  effort: 'low' | 'medium' | 'high'
+  source: 'ai' | 'structure'
+}
+
 export interface CapabilityAnalysis {
   title: string
   summary: string
@@ -38,6 +75,8 @@ export interface CapabilityAnalysis {
   capabilities: CapabilityAssessment[]
   risks: string[]
   recommendations: string[]
+  costForecast: CostForecast
+  simplifications: IntegrationSimplification[]
 }
 
 export function buildAnalysisPrompt(options: {
@@ -48,8 +87,15 @@ export function buildAnalysisPrompt(options: {
   const lens = ANALYSIS_LENSES.find((item) => item.id === options.lens) ?? ANALYSIS_LENSES[0]
   const parts = [
     `Analyze this architecture as enterprise capabilities and show pros and cons.`,
+    `Always predict monthly run cost and list integration simplifications that reduce hops, duplicates, or point-to-point sprawl.`,
     `Focus lens: ${lens.label} — ${lens.hint}.`,
   ]
+  if (options.lens === 'cost') {
+    parts.push('Weight the review toward SKU, region, HA, and integration runtime cost. Fill gaps where estimatedCost is missing.')
+  }
+  if (options.lens === 'simplify') {
+    parts.push('Weight the review toward consolidating integrations. Prefer fewer hops, one canonical contract per pair, and process APIs or events over duplicate REST jobs.')
+  }
   if (options.focusLabel?.trim()) {
     parts.push(`Give extra depth to this system or capability: ${options.focusLabel.trim()}.`)
   }
@@ -62,14 +108,33 @@ export function buildAnalysisPrompt(options: {
 export function summarizeArchitectureForAnalysis(doc: ArchitectureDocument): string {
   const systems = flattenSystems(doc.systems)
   const integrations = flattenIntegrations(doc.systems, doc.integrations)
+  const declared = collectDeclaredCosts(doc)
+  const smells = detectIntegrationSimplifications(doc)
+  const infra = doc.metadata.infrastructure
   return [
     `Name: ${doc.metadata.name}`,
     doc.metadata.description ? `Description: ${doc.metadata.description}` : '',
     `Counts: ${systems.length} systems, ${integrations.length} integrations`,
+    infra
+      ? `Landing zone: ${[infra.cloudProvider, infra.primaryRegion, infra.landingZone, infra.environment]
+          .filter(Boolean)
+          .join(' · ') || 'not set'}`
+      : '',
+    declared.monthly > 0
+      ? `Declared monthly cost on components: ${formatCurrency(declared.monthly)} (${declared.items.length} priced items)`
+      : 'Declared monthly cost on components: none (predict from SKU, region, and service type)',
     'Systems:',
     systems.map(formatSystem).join('\n') || '(none)',
     'Integrations:',
     integrations.map(formatIntegration).join('\n') || '(none)',
+    smells.length > 0
+      ? `Structural simplification hints:\n${smells
+          .map(
+            (item) =>
+              `- ${item.title}: ${item.problem} Suggested: ${item.action} [${item.integrationIds.join(', ')}]`,
+          )
+          .join('\n')}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n')
@@ -101,12 +166,19 @@ function formatSystem(system: SystemNode & { depth: number }): string {
   const bits: string[] = [system.type]
   if (system.properties?.vendor) bits.push(system.properties.vendor)
   if (system.properties?.service) bits.push(system.properties.service)
+  if (system.properties?.region) bits.push(`region ${system.properties.region}`)
+  if (system.properties?.sku) bits.push(`sku ${system.properties.sku}`)
+  if (system.properties?.haMode) bits.push(system.properties.haMode)
+  if (system.properties?.estimatedCost) bits.push(`cost ${system.properties.estimatedCost}`)
   const desc = system.properties?.description ? ` — ${system.properties.description}` : ''
   return `${indent}- ${system.id}: ${system.label} (${bits.join(', ')})${desc}`
 }
 
 function formatIntegration(integration: Integration): string {
-  return `- ${integration.source} -> ${integration.target}: ${integration.label} via ${integration.protocol} (${integration.frequency})`
+  const hops = integration.sequenceFlow?.length
+    ? `, ${integration.sequenceFlow.length} inner hops`
+    : ''
+  return `- ${integration.id}: ${integration.source} -> ${integration.target}: ${integration.label} via ${integration.protocol} (${integration.frequency}${hops})`
 }
 
 export async function analyzeArchitectureCapabilities(options: {
@@ -151,7 +223,7 @@ export async function analyzeArchitectureCapabilities(options: {
     throw new Error(`${info.shortLabel} returned an empty analysis`)
   }
 
-  return normalizeAnalysis(parseJsonObject(payload.text))
+  return normalizeAnalysis(parseJsonObject(payload.text), options.document)
 }
 
 function parseJsonObject(text: string): unknown {
@@ -170,7 +242,7 @@ function parseJsonObject(text: string): unknown {
   }
 }
 
-function normalizeAnalysis(raw: unknown): CapabilityAnalysis {
+function normalizeAnalysis(raw: unknown, document: ArchitectureDocument): CapabilityAnalysis {
   if (!raw || typeof raw !== 'object') {
     throw new Error('Capability analysis is empty')
   }
@@ -184,6 +256,13 @@ function normalizeAnalysis(raw: unknown): CapabilityAnalysis {
     throw new Error('The model returned no capabilities to review.')
   }
 
+  const declared = collectDeclaredCosts(document)
+  const structural = detectIntegrationSimplifications(document)
+  const aiSimplifications = asArray(input.simplifications)
+    .map((item) => normalizeSimplification(item, 'ai'))
+    .filter((item): item is IntegrationSimplification => Boolean(item))
+  const simplifications = mergeSimplifications(aiSimplifications, structural)
+
   return {
     title: asString(input.title) || 'Capability analysis',
     summary: asString(input.summary) || 'Review of the current architecture.',
@@ -191,7 +270,112 @@ function normalizeAnalysis(raw: unknown): CapabilityAnalysis {
     capabilities,
     risks: stringList(input.risks).slice(0, 8),
     recommendations: stringList(input.recommendations).slice(0, 8),
+    costForecast: normalizeCostForecast(input.costForecast, declared),
+    simplifications,
   }
+}
+
+function normalizeCostForecast(raw: unknown, declared: ReturnType<typeof collectDeclaredCosts>): CostForecast {
+  const input = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const expected = asNumber(input.monthlyExpected) || asNumber(input.monthly) || declared.monthly
+  const low = asNumber(input.monthlyLow) || Math.round(expected * 0.7)
+  const high = asNumber(input.monthlyHigh) || Math.round(expected * 1.4 || declared.monthly * 1.4)
+  const drivers = asArray(input.drivers)
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const row = item as Record<string, unknown>
+      const name = asString(row.name)
+      const monthly = asNumber(row.monthly)
+      if (!name || monthly <= 0) return null
+      return { name, monthly, note: asString(row.note) }
+    })
+    .filter((item): item is CostDriver => Boolean(item))
+    .slice(0, 10)
+  const fallbackDrivers =
+    drivers.length > 0
+      ? drivers
+      : declared.items.slice(0, 10).map((item) => ({
+          name: item.label,
+          monthly: item.monthly,
+          note: item.raw,
+        }))
+  const confidenceRaw = asString(input.confidence).toLowerCase()
+  const confidence: CostForecast['confidence'] =
+    confidenceRaw === 'high' || confidenceRaw === 'medium' || confidenceRaw === 'low'
+      ? confidenceRaw
+      : declared.monthly > 0
+        ? 'medium'
+        : 'low'
+  return {
+    currency: asString(input.currency) || 'USD',
+    monthlyLow: Math.min(low, expected || low),
+    monthlyExpected: expected,
+    monthlyHigh: Math.max(high, expected || high),
+    confidence,
+    basis:
+      asString(input.basis) ||
+      (declared.monthly > 0
+        ? 'Blend of declared component costs and typical list prices for unnamed SKUs.'
+        : 'Indicative list-price forecast. Add SKU and estimatedCost on components to tighten it.'),
+    declaredMonthly: declared.monthly,
+    drivers: fallbackDrivers,
+  }
+}
+
+function normalizeSimplification(
+  raw: unknown,
+  source: IntegrationSimplification['source'],
+): IntegrationSimplification | null {
+  if (!raw || typeof raw !== 'object') return null
+  const input = raw as Record<string, unknown>
+  const title = asString(input.title)
+  const action = asString(input.action) || asString(input.recommendation)
+  if (!title || !action) return null
+  const effortRaw = asString(input.effort).toLowerCase()
+  return {
+    id: asString(input.id) || `ai-${title.slice(0, 24)}`,
+    title,
+    problem: asString(input.problem),
+    action,
+    integrationIds: stringList(input.integrationIds).slice(0, 12),
+    integrationLabels: stringList(input.integrationLabels).slice(0, 12),
+    savingsMonthly: asNumber(input.savingsMonthly) || asNumber(input.savings),
+    removesHops: Math.round(asNumber(input.removesHops)),
+    effort: effortRaw === 'low' || effortRaw === 'high' || effortRaw === 'medium' ? effortRaw : 'medium',
+    source,
+  }
+}
+
+function mergeSimplifications(
+  ai: IntegrationSimplification[],
+  structural: ReturnType<typeof detectIntegrationSimplifications>,
+): IntegrationSimplification[] {
+  const mapped = structural.map((item) => ({
+    ...item,
+    savingsMonthly: 0,
+    removesHops: Math.max(0, item.integrationIds.length - 1),
+    effort: 'medium' as const,
+    source: 'structure' as const,
+  }))
+  const seen = new Set<string>()
+  const out: IntegrationSimplification[] = []
+  for (const item of [...ai, ...mapped]) {
+    const key = `${item.title}|${item.integrationIds.slice().sort().join(',')}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(item)
+    if (out.length >= 10) break
+  }
+  return out
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/[^0-9.-]/g, ''))
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
 }
 
 function normalizeCapability(raw: unknown): CapabilityAssessment | null {

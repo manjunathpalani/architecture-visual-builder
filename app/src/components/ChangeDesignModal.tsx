@@ -3,6 +3,7 @@ import {
   Bot,
   Copy,
   Download,
+  FolderSearch,
   KeyRound,
   Loader2,
   Maximize2,
@@ -50,7 +51,11 @@ import {
   upsertDesign,
 } from '../utils/changeDesign'
 import { dispatchAgentWork } from '../utils/agentDispatch'
+import { analyzeCodeImpact, type CodeImpactReport } from '../utils/codeImpact'
+import { canPickLocalFolder } from '../utils/codeSnapshot'
+import { isVsCodeHost } from '../utils/vscodeHost'
 import { FeatureStoriesPanel } from './FeatureStoriesPanel'
+import { NfrTemplateInsert } from './NfrTemplateSection'
 import { FeatureStoryTree, type FeatureTreeSelection } from './FeatureStoryTree'
 
 interface ChangeDesignModalProps {
@@ -99,6 +104,8 @@ export function ChangeDesignModal({
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null)
   const [generatingReqs, setGeneratingReqs] = useState<string | null>(null)
   const [sendingAgent, setSendingAgent] = useState<string | null>(null)
+  const [analyzingImpact, setAnalyzingImpact] = useState(false)
+  const [impact, setImpact] = useState<CodeImpactReport | null>(null)
   const [provider, setProvider] = useState<AiProviderId>(loadAiSettings().selectedProvider)
   const [status, setStatus] = useState<AiStatus | null>(null)
   const [size, setSize] = useState<'dialog' | 'expanded'>(() => {
@@ -418,6 +425,37 @@ export function ChangeDesignModal({
     setMessage(`Marked ${task.systemLabel} as applied`)
   }
 
+  const runImpact = async (localFolder = false) => {
+    if (!draft) return
+    setAnalyzingImpact(true)
+    setMessage(null)
+    try {
+      const report = await analyzeCodeImpact({
+        document,
+        design: draft,
+        providerId: provider,
+        localFolder,
+      })
+      setImpact(report)
+      const saved = {
+        ...draft,
+        impactReport: report,
+        impactAnalyzedAt: report.analyzedAt,
+      }
+      setDraft(saved)
+      persist(saved)
+      setMessage(
+        report.fileCount > 0
+          ? `Impact analysis used ${report.fileCount} files from ${report.snapshotSource}.`
+          : 'Impact analysis ran with architecture context only. Link gitPath/repos or scan a local folder for file-level hits.',
+      )
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : 'Impact analysis failed')
+    } finally {
+      setAnalyzingImpact(false)
+    }
+  }
+
   const syncFromArchitecture = () => {
     if (!draft) return
     const next = syncTasksFromArchitecture(document, draft)
@@ -579,7 +617,35 @@ export function ChangeDesignModal({
                   {provider === 'copilot' ? 'Connect Copilot' : `Add ${info.shortLabel} key`}
                 </button>
               )}
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={analyzingImpact || !draft.tasks.length}
+                onClick={() => void runImpact(false)}
+                title={
+                  isVsCodeHost()
+                    ? 'Read the VS Code workspace (and linked git paths) for this feature'
+                    : 'Read linked GitHub/Azure DevOps code for this feature'
+                }
+              >
+                {analyzingImpact ? <Loader2 size={14} className="spin" /> : <FolderSearch size={14} />}
+                Analyze code impact
+              </button>
+              {canPickLocalFolder() && !isVsCodeHost() && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={analyzingImpact || !draft.tasks.length}
+                  onClick={() => void runImpact(true)}
+                >
+                  Scan local folder
+                </button>
+              )}
             </div>
+
+            {(impact || (draft.impactReport as CodeImpactReport | undefined)) && (
+              <CodeImpactResults report={impact ?? (draft.impactReport as CodeImpactReport)} />
+            )}
 
             <div className="change-design-tree-panel">
               <div className="change-design-components-header">
@@ -677,10 +743,14 @@ export function ChangeDesignModal({
                 </label>
                 <label>
                   Non-functional requirements
+                  <NfrTemplateInsert
+                    value={draft.nonFunctionalRequirements}
+                    onChange={(nonFunctionalRequirements) => updateDraft({ nonFunctionalRequirements })}
+                  />
                   <textarea
                     rows={3}
                     value={draft.nonFunctionalRequirements ?? ''}
-                    placeholder="Security, performance, reliability, observability, compliance."
+                    placeholder="Security, performance, reliability, observability, compliance. Or insert an industry template."
                     onChange={(e) => updateDraft({ nonFunctionalRequirements: e.target.value })}
                   />
                 </label>
@@ -975,5 +1045,68 @@ export function ChangeDesignModal({
         )}
       </div>
     </div>
+  )
+}
+
+function CodeImpactResults({ report }: { report: CodeImpactReport }) {
+  return (
+    <section className="code-impact-panel">
+      <header>
+        <h3>{report.title}</h3>
+        <span className={`ai-effort-badge effort-${report.verdict === 'contained' ? 'low' : report.verdict === 'high-risk' ? 'high' : 'medium'}`}>
+          {report.verdict.replace('-', ' ')}
+        </span>
+      </header>
+      <p>{report.summary}</p>
+      <p className="code-link-hint">
+        {report.fileCount} files from {report.snapshotSource}
+        {report.analyzedAt ? ` · ${new Date(report.analyzedAt).toLocaleString()}` : ''}
+      </p>
+      {report.recommendedOrder.length > 0 && (
+        <p>
+          <strong>Suggested order:</strong> {report.recommendedOrder.join(' → ')}
+        </p>
+      )}
+      {report.missingCode.length > 0 && (
+        <p className="code-link-hint">No matching code yet: {report.missingCode.join(', ')}</p>
+      )}
+      <div className="code-impact-grid">
+        {report.systems.map((system) => (
+          <article key={`${system.systemId}-${system.systemLabel}`} className="code-impact-card">
+            <header>
+              <h4>{system.systemLabel}</h4>
+              <span className={`ai-effort-badge effort-${system.effort}`}>{system.effort}</span>
+            </header>
+            <p>{system.impact}</p>
+            {system.requiredChanges.length > 0 && (
+              <ul>
+                {system.requiredChanges.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            )}
+            {system.files.length > 0 && (
+              <p className="code-link-hint">{system.files.slice(0, 8).join(' · ')}</p>
+            )}
+            {system.risks.length > 0 && (
+              <p className="code-link-hint">Risks: {system.risks.join('; ')}</p>
+            )}
+          </article>
+        ))}
+      </div>
+      {report.integrations.length > 0 && (
+        <div className="code-impact-integrations">
+          <h4>Integration contract impacts</h4>
+          <ul>
+            {report.integrations.map((item) => (
+              <li key={`${item.label}-${item.from}-${item.to}`}>
+                <strong>{item.label}</strong>
+                {item.from && item.to ? ` (${item.from} → ${item.to})` : ''}: {item.impact}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
   )
 }
