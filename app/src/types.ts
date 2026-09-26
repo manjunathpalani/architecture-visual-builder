@@ -100,9 +100,9 @@ export type IntegrationFrequency =
 export type EdgeRouting = 'bezier' | 'smoothstep' | 'step' | 'straight'
 
 export const EDGE_ROUTING_OPTIONS: Array<{ id: EdgeRouting; label: string; hint: string }> = [
-  { id: 'bezier', label: 'Curved', hint: 'Smooth curve between boxes' },
   { id: 'smoothstep', label: 'Rounded orthogonal', hint: 'Right-angle turns with rounded corners' },
   { id: 'step', label: 'Orthogonal', hint: 'Right-angle routing' },
+  { id: 'bezier', label: 'Curved', hint: 'Smooth curve between boxes' },
   { id: 'straight', label: 'Straight', hint: 'Direct line' },
 ]
 
@@ -110,7 +110,7 @@ export function parseEdgeRouting(value?: string): EdgeRouting {
   if (value === 'bezier' || value === 'smoothstep' || value === 'step' || value === 'straight') {
     return value
   }
-  return 'bezier'
+  return 'smoothstep'
 }
 
 export type IntegrationLineStyle = 'solid' | 'dashed' | 'dotted'

@@ -1754,7 +1754,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           frequency: 'real-time',
           dataFormat: 'JSON',
           description: '',
-          routing: 'bezier',
+          routing: 'smoothstep',
           waypoints: [],
         },
       }

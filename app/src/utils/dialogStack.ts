@@ -12,6 +12,7 @@ export type DialogId =
   | 'aiDiagram'
   | 'aiAnalysis'
   | 'aiSad'
+  | 'aiTestPlan'
   | 'changeDesign'
 
 export const DIALOG_LABELS: Record<DialogId, string> = {
@@ -28,6 +29,7 @@ export const DIALOG_LABELS: Record<DialogId, string> = {
   aiDiagram: 'Draw with AI',
   aiAnalysis: 'Capability analysis',
   aiSad: 'Write SAD',
+  aiTestPlan: 'Test plan',
   changeDesign: 'Feature and apply changes',
 }
 

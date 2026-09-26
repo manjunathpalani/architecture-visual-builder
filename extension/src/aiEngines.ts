@@ -231,6 +231,46 @@ export async function completeImpact(request: EngineRequest): Promise<string> {
   return completeDiagram({ ...request, systemPrompt: IMPACT_SYSTEM_PROMPT })
 }
 
+export const TESTPLAN_SYSTEM_PROMPT = `You write an end-to-end software test plan from an architecture diagram.
+Return ONLY valid JSON. No markdown, no commentary, no code fences.
+
+JSON shape:
+{
+  "title": "architecture name — end-to-end test plan",
+  "objective": "one sentence",
+  "scope": ["bullet"],
+  "suites": [
+    {
+      "id": "suite-e2e-1",
+      "name": "E2E — journey name",
+      "kind": "e2e" | "contract" | "component" | "nfr",
+      "objective": "why this suite exists",
+      "cases": [
+        {
+          "id": "E2E-1",
+          "title": "Happy path — …",
+          "priority": "P0" | "P1" | "P2",
+          "components": ["system labels"],
+          "preconditions": ["…"],
+          "steps": [{ "action": "what the tester does", "expected": "observable result" }],
+          "data": "optional sample payload note"
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Always include an e2e suite per sequence flow (happy path + one fault/injection case).
+- Include contract tests for integrations and smoke tests for components.
+- Turn NFRs into measurable tests (latency, authn, encryption, availability).
+- Name real systems and protocols from the context. Do not invent systems.
+- Keep ids like E2E-1, CT-1, CMP-1, NFR-1.`
+
+export async function completeTestPlan(request: EngineRequest): Promise<string> {
+  return completeDiagram({ ...request, systemPrompt: TESTPLAN_SYSTEM_PROMPT })
+}
+
 export async function completeInstruction(request: EngineRequest): Promise<string> {
   return completeDiagram({ ...request, systemPrompt: INSTRUCTION_SYSTEM_PROMPT })
 }

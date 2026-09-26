@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import {
   Check,
   Coins,
+  Copy,
+  Download,
   GitMerge,
   KeyRound,
   Loader2,
@@ -24,7 +26,10 @@ import {
 import { fetchAiStatus, type AiStatus } from '../utils/aiDiagram'
 import {
   ANALYSIS_LENSES,
+  analysisFileSlug,
   analyzeArchitectureCapabilities,
+  downloadAnalysisFile,
+  formatCapabilityAnalysisMarkdown,
   type AnalysisLensId,
   type AnalysisVerdict,
   type CapabilityAnalysis,
@@ -66,6 +71,7 @@ export function AiAnalysisModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<CapabilityAnalysis | null>(null)
+  const [exportMessage, setExportMessage] = useState<string | null>(null)
 
   useEffect(() => {
     void fetchAiStatus().then(setStatus)
@@ -157,7 +163,83 @@ export function AiAnalysisModal({
               <KeyRound size={14} />
               Settings
             </button>
+            {analysis && (
+              <>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={loading}
+                  onClick={() => {
+                    const slug = analysisFileSlug(document.metadata.name)
+                    downloadAnalysisFile(
+                      `${slug}-analysis.md`,
+                      formatCapabilityAnalysisMarkdown(analysis, {
+                        architectureName: document.metadata.name,
+                        lens,
+                        focusLabel,
+                        notes,
+                      }),
+                      'text/markdown;charset=utf-8',
+                    )
+                    setExportMessage('Downloaded Markdown report')
+                  }}
+                >
+                  <Download size={14} />
+                  Export Markdown
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={loading}
+                  onClick={() => {
+                    const slug = analysisFileSlug(document.metadata.name)
+                    downloadAnalysisFile(
+                      `${slug}-analysis.json`,
+                      JSON.stringify(
+                        {
+                          architecture: document.metadata.name,
+                          lens,
+                          focusLabel: focusLabel ?? null,
+                          notes: notes.trim() || null,
+                          exportedAt: new Date().toISOString(),
+                          analysis,
+                        },
+                        null,
+                        2,
+                      ),
+                      'application/json;charset=utf-8',
+                    )
+                    setExportMessage('Downloaded JSON report')
+                  }}
+                >
+                  <Download size={14} />
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={loading}
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(
+                        formatCapabilityAnalysisMarkdown(analysis, {
+                          architectureName: document.metadata.name,
+                          lens,
+                          focusLabel,
+                          notes,
+                        }),
+                      )
+                      .then(() => setExportMessage('Copied report to clipboard'))
+                      .catch(() => setExportMessage('Could not copy to clipboard'))
+                  }}
+                >
+                  <Copy size={14} />
+                  Copy
+                </button>
+              </>
+            )}
           </div>
+          {exportMessage && <p className="git-status ok">{exportMessage}</p>}
           {!hasKey && (
             <p className="git-status err">
               {provider === 'copilot'

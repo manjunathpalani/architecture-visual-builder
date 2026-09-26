@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Download, FileDown, FileText, Presentation } from 'lucide-react'
+import { ChevronDown, ClipboardCheck, Download, FileDown, FileText, Presentation } from 'lucide-react'
 
 interface ExportMenuProps {
   exporting: boolean
   onExportJson: () => void
   onExportPptx: () => void
   onExportDocx: () => void
+  onExportTestPlan?: () => void
 }
 
-export function ExportMenu({ exporting, onExportJson, onExportPptx, onExportDocx }: ExportMenuProps) {
+export function ExportMenu({ exporting, onExportJson, onExportPptx, onExportDocx, onExportTestPlan }: ExportMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -61,6 +62,15 @@ export function ExportMenu({ exporting, onExportJson, onExportPptx, onExportDocx
               <em>SAD with NFRs, nested diagrams, and sequence flows</em>
             </span>
           </button>
+          {onExportTestPlan && (
+            <button type="button" role="menuitem" onClick={() => run(onExportTestPlan)}>
+              <ClipboardCheck size={15} />
+              <span>
+                <strong>End-to-end test plan</strong>
+                <em>Cases from sequence flows, components, and NFRs</em>
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>

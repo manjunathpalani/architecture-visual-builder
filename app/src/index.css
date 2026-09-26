@@ -3902,6 +3902,49 @@ body.is-toolbar-dragging {
   font-size: 0.8rem;
 }
 
+.test-plan-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.test-plan-suite {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+}
+
+.test-plan-suite > header,
+.test-plan-case > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.test-plan-suite h4,
+.test-plan-case h5 {
+  margin: 0 0 6px;
+}
+
+.test-plan-case {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.test-plan-case p {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+}
+
+.test-plan-case em {
+  color: var(--text-muted);
+}
+
 .ai-sad-inventory {
   margin: 0;
   font-size: 0.78rem;

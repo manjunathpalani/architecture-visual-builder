@@ -29,6 +29,7 @@ import {
   UploadCloud,
   Bot,
   BoxSelect,
+  ClipboardCheck,
   Save,
 } from 'lucide-react'
 import { CodeLinksPanel } from './components/CodeLinksPanel'
@@ -42,6 +43,7 @@ import { SaasMetadataModal } from './components/SaasMetadataModal'
 import { AiDiagramModal } from './components/AiDiagramModal'
 import { AiAnalysisModal } from './components/AiAnalysisModal'
 import { AiSadModal } from './components/AiSadModal'
+import { AiTestPlanModal } from './components/AiTestPlanModal'
 import { ChangeDesignModal } from './components/ChangeDesignModal'
 import { AuditTrailPanel } from './components/AuditTrailPanel'
 import { DialogLayer } from './components/DialogLayer'
@@ -85,6 +87,7 @@ import {
   updateSystemInView,
 } from './utils/diagramNavigation'
 import { locateSequenceStep, seedIntegrationSequence } from './utils/sequenceFlow'
+import { buildStructuralTestPlan, downloadTestPlan } from './utils/testPlan'
 import { ComponentPalette } from './components/ComponentPalette'
 import { DiagramBreadcrumb } from './components/DiagramBreadcrumb'
 import { DiagramPageTitle } from './components/DiagramPageTitle'
@@ -1362,6 +1365,20 @@ function App() {
             disabled: exporting,
             onSelect: () => void runOfficeExport('docx'),
           },
+          {
+            id: 'export-test-plan',
+            label: 'Export test plan',
+            hint: 'E2E cases from sequence flows and components',
+            icon: ClipboardCheck,
+            onSelect: () => {
+              if (document.systems.length === 0) {
+                setGitMessage('Add components before exporting a test plan')
+                return
+              }
+              downloadTestPlan(buildStructuralTestPlan(document), document.metadata.name)
+              setGitMessage('Downloaded end-to-end test plan')
+            },
+          },
         ],
       },
       {
@@ -1465,6 +1482,13 @@ function App() {
             hint: 'AI narrative, NFRs, nested diagrams, sequence flows',
             icon: NotebookPen,
             onSelect: () => openDialog('aiSad'),
+          },
+          {
+            id: 'test-plan',
+            label: 'Test plan…',
+            hint: 'E2E cases from sequence flows, components, and NFRs',
+            icon: ClipboardCheck,
+            onSelect: () => openDialog('aiTestPlan'),
           },
           {
             id: 'change-design',
@@ -2021,6 +2045,19 @@ function App() {
             }}
             onExport={(draft) => void runOfficeExport('docx', draft)}
             onClose={() => closeDialog('aiSad')}
+          />
+        </DialogLayer>
+      )}
+
+      {isDialogOpen('aiTestPlan') && (
+        <DialogLayer id="aiTestPlan" stack={dialogStack} onClose={() => closeDialog('aiTestPlan')}>
+          <AiTestPlanModal
+            document={document}
+            onManageKeys={() => {
+              setSettingsTab('ai')
+              openDialog('settings')
+            }}
+            onClose={() => closeDialog('aiTestPlan')}
           />
         </DialogLayer>
       )}

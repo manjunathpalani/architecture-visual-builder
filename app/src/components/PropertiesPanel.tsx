@@ -1028,7 +1028,7 @@ export function PropertiesPanel({
             <span className="code-link-hint">
               {EDGE_ROUTING_OPTIONS.find((option) => option.id === parseEdgeRouting(data.routing))?.hint}
               {' · '}
-              Drag the curved line to move it. Drag a connector end to another port. Drag the dots to bend it.
+              Drag the line to move it. Drag a connector end to another port. Drag the dots to bend it.
             </span>
           </label>
           {(data.waypoints?.length ?? 0) > 0 && (

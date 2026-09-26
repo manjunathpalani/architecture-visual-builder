@@ -1,6 +1,7 @@
 import {
   ANALYSIS_SYSTEM_PROMPT,
   IMPACT_SYSTEM_PROMPT,
+  TESTPLAN_SYSTEM_PROMPT,
   INSTRUCTION_SYSTEM_PROMPT,
   REQUIREMENTS_SYSTEM_PROMPT,
   SAD_SYSTEM_PROMPT,
@@ -8,6 +9,7 @@ import {
   completeAnalysis,
   completeDiagram,
   completeImpact,
+  completeTestPlan,
   completeInstruction,
   completeRequirements,
   completeSad,
@@ -60,6 +62,8 @@ export async function handleAiApi(path: string, body?: Record<string, unknown>):
         return handleAnalyze(body ?? {})
       case 'impact':
         return handleImpact(body ?? {})
+      case 'testplan':
+        return handleTestPlan(body ?? {})
       case 'instruct':
         return handleInstruct(body ?? {})
       case 'requirements':
@@ -292,6 +296,41 @@ async function handleImpact(body: Record<string, unknown>): Promise<AiApiResult>
   }
 
   const text = await completeImpact({
+    provider: provider.id,
+    prompt,
+    context,
+    apiKey,
+    model: stringField(body.model) || envValue(provider.envModel ?? '') || provider.defaultModel,
+    azureEndpoint: stringField(body.azureEndpoint) || envValue('AZURE_OPENAI_ENDPOINT'),
+    azureDeployment: stringField(body.azureDeployment) || envValue('AZURE_OPENAI_DEPLOYMENT'),
+  })
+  return { status: 200, payload: { text, provider: provider.id } }
+}
+
+async function handleTestPlan(body: Record<string, unknown>): Promise<AiApiResult> {
+  const provider = resolveProvider(body.provider)
+  if (!provider) return { status: 400, payload: { error: 'Unknown AI engine' } }
+
+  const context = stringField(body.context)
+  if (!context) {
+    return { status: 400, payload: { error: 'Add systems to the canvas before generating a test plan.' } }
+  }
+
+  const prompt = (stringField(body.prompt) || 'Produce an end-to-end test plan for this architecture.').slice(0, 4000)
+  const viaLm = await completeCopilotInVsCode({
+    provider: provider.id,
+    prompt,
+    context,
+    systemPrompt: TESTPLAN_SYSTEM_PROMPT,
+  })
+  if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
+
+  const apiKey = resolveApiKey(provider, body.apiKey)
+  if (!apiKey) {
+    return missingCopilotOrKey(provider)
+  }
+
+  const text = await completeTestPlan({
     provider: provider.id,
     prompt,
     context,

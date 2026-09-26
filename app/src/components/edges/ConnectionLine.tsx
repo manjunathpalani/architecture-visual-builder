@@ -1,12 +1,23 @@
-import type { ConnectionLineComponentProps } from '@xyflow/react'
+import { getSmoothStepPath, type ConnectionLineComponentProps } from '@xyflow/react'
 
-/** Preview line while dragging A → B; arrow always points at the drop target. */
+/** Preview line while dragging A → B; rounded orthogonal, arrow points at the drop target. */
 export function IntegrationConnectionLine({
   fromX,
   fromY,
   toX,
   toY,
+  fromPosition,
+  toPosition,
 }: ConnectionLineComponentProps) {
+  const [path] = getSmoothStepPath({
+    sourceX: fromX,
+    sourceY: fromY,
+    sourcePosition: fromPosition,
+    targetX: toX,
+    targetY: toY,
+    targetPosition: toPosition,
+    borderRadius: 16,
+  })
   return (
     <g>
       <defs>
@@ -27,7 +38,7 @@ export function IntegrationConnectionLine({
         fill="none"
         stroke="#6366f1"
         strokeWidth={2}
-        d={`M ${fromX} ${fromY} L ${toX} ${toY}`}
+        d={path}
         markerEnd="url(#avb-connection-arrow)"
       />
     </g>

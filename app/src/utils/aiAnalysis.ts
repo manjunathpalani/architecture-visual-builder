@@ -79,6 +79,110 @@ export interface CapabilityAnalysis {
   simplifications: IntegrationSimplification[]
 }
 
+const VERDICT_LABEL: Record<AnalysisVerdict, string> = {
+  strong: 'Strong',
+  balanced: 'Balanced',
+  'at-risk': 'At risk',
+}
+
+export function analysisFileSlug(name: string): string {
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  return slug || 'architecture-analysis'
+}
+
+export function formatCapabilityAnalysisMarkdown(
+  analysis: CapabilityAnalysis,
+  options: { architectureName: string; lens?: AnalysisLensId; focusLabel?: string; notes?: string },
+): string {
+  const lens = ANALYSIS_LENSES.find((item) => item.id === options.lens)
+  const cost = analysis.costForecast
+  const lines: string[] = [
+    `# ${analysis.title}`,
+    '',
+    `- Architecture: ${options.architectureName}`,
+    `- Verdict: ${VERDICT_LABEL[analysis.verdict]}`,
+    lens ? `- Lens: ${lens.label}` : '',
+    options.focusLabel ? `- Emphasis: ${options.focusLabel}` : '',
+    options.notes?.trim() ? `- Review notes: ${options.notes.trim()}` : '',
+    `- Exported: ${new Date().toISOString()}`,
+    '',
+    '## Summary',
+    '',
+    analysis.summary,
+    '',
+    '## Cost forecast',
+    '',
+    `- Expected monthly: ${formatCurrency(cost.monthlyExpected, cost.currency)}`,
+    `- Range: ${formatCurrency(cost.monthlyLow, cost.currency)} – ${formatCurrency(cost.monthlyHigh, cost.currency)}`,
+    `- Confidence: ${cost.confidence}`,
+    cost.declaredMonthly > 0
+      ? `- Declared on components: ${formatCurrency(cost.declaredMonthly, cost.currency)}`
+      : '',
+    cost.basis ? `- Basis: ${cost.basis}` : '',
+  ]
+  if (cost.drivers.length > 0) {
+    lines.push('', '### Cost drivers', '')
+    for (const driver of cost.drivers) {
+      lines.push(
+        `- ${driver.name}: ${formatCurrency(driver.monthly, cost.currency)}${driver.note ? ` — ${driver.note}` : ''}`,
+      )
+    }
+  }
+  if (analysis.simplifications.length > 0) {
+    lines.push('', '## Simplify integrations', '')
+    for (const item of analysis.simplifications) {
+      lines.push(`### ${item.title}`)
+      lines.push('')
+      if (item.problem) lines.push(item.problem, '')
+      lines.push(`**Action:** ${item.action}`)
+      if (item.integrationLabels.length) lines.push(`**Flows:** ${item.integrationLabels.join(', ')}`)
+      if (item.savingsMonthly > 0) {
+        lines.push(`**Indicative saving:** ${formatCurrency(item.savingsMonthly, cost.currency)} / month`)
+      }
+      if (item.removesHops > 0) lines.push(`**Hops removed:** ${item.removesHops}`)
+      lines.push(`**Effort:** ${item.effort}`, '')
+    }
+  }
+  lines.push('## Capabilities', '')
+  for (const capability of analysis.capabilities) {
+    lines.push(`### ${capability.name}`)
+    lines.push('')
+    if (capability.related.length) lines.push(`Covers: ${capability.related.join(', ')}`, '')
+    if (capability.assessment) lines.push(capability.assessment, '')
+    if (capability.pros.length) {
+      lines.push('**Pros**')
+      capability.pros.forEach((item) => lines.push(`- ${item}`))
+      lines.push('')
+    }
+    if (capability.cons.length) {
+      lines.push('**Cons**')
+      capability.cons.forEach((item) => lines.push(`- ${item}`))
+      lines.push('')
+    }
+  }
+  if (analysis.risks.length) {
+    lines.push('## Risks', '')
+    analysis.risks.forEach((item) => lines.push(`- ${item}`))
+    lines.push('')
+  }
+  if (analysis.recommendations.length) {
+    lines.push('## Recommendations', '')
+    analysis.recommendations.forEach((item) => lines.push(`- ${item}`))
+    lines.push('')
+  }
+  return lines.filter((line) => line !== undefined).join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
+export function downloadAnalysisFile(filename: string, content: string, mime: string) {
+  const blob = new Blob([content], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const anchor = window.document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 export function buildAnalysisPrompt(options: {
   lens: AnalysisLensId
   focusLabel?: string
