@@ -30,6 +30,7 @@ import {
   Bot,
   BoxSelect,
   ClipboardCheck,
+  Route,
   Save,
 } from 'lucide-react'
 import { CodeLinksPanel } from './components/CodeLinksPanel'
@@ -44,6 +45,7 @@ import { AiDiagramModal } from './components/AiDiagramModal'
 import { AiAnalysisModal } from './components/AiAnalysisModal'
 import { AiSadModal } from './components/AiSadModal'
 import { AiTestPlanModal } from './components/AiTestPlanModal'
+import { AgentPlanModal } from './components/AgentPlanModal'
 import { ChangeDesignModal } from './components/ChangeDesignModal'
 import { AuditTrailPanel } from './components/AuditTrailPanel'
 import { DialogLayer } from './components/DialogLayer'
@@ -108,6 +110,7 @@ import { createFromPickId, createFromTemplate } from './data/templates'
 import { addUserTemplate } from './utils/userTemplates'
 import { mergeGeneratedIntoView, type AiPlacement } from './utils/aiDiagram'
 import { redrawKeepingZones } from './utils/zoneRectangles'
+import { createAgentPlanDocument, insertAgentPlan, type AgentPlan } from './utils/agentPlan'
 import { applySaasImport, type SaasImportPayload } from './utils/saas/mapToDiagram'
 import { applyAudit, type AuditExtras } from './utils/auditLog'
 import {
@@ -177,6 +180,7 @@ function App() {
   const [tabs, setTabs] = useState<ProjectTab[]>(INITIAL_WORKSPACE.tabs)
   const [activeTabId, setActiveTabId] = useState(INITIAL_WORKSPACE.activeTabId)
   const [selectedNode, setSelectedNode] = useState<Node<IntegrationNodeData> | null>(null)
+  const [selectedNodes, setSelectedNodes] = useState<Node<IntegrationNodeData>[]>([])
   const [selectedEdge, setSelectedEdge] = useState<Edge<IntegrationEdgeData> | null>(null)
   const [selectedEdges, setSelectedEdges] = useState<Edge<IntegrationEdgeData>[]>([])
   const [dialogStack, setDialogStack] = useState<DialogId[]>(() => loadDialogStack())
@@ -919,6 +923,38 @@ function App() {
     }
   }
 
+  const handleUpdateNodes = (ids: string[], data: Partial<IntegrationNodeData>) => {
+    const idSet = new Set(ids)
+    setDocument((prev) => {
+      let next = prev
+      for (const id of ids) {
+        next = updateSystemInView(next, drillPath, id, (system) => ({
+          ...system,
+          type: data.systemType ?? system.type,
+          label: data.label ?? system.label,
+          category: data.category ?? system.category,
+          properties: data.properties ? { ...system.properties, ...data.properties } : system.properties,
+        }))
+      }
+      return next
+    })
+    const merge = (node: Node<IntegrationNodeData>): Node<IntegrationNodeData> =>
+      idSet.has(node.id)
+        ? {
+            ...node,
+            data: {
+              ...node.data,
+              ...data,
+              properties: data.properties
+                ? { ...node.data.properties, ...data.properties }
+                : node.data.properties,
+            },
+          }
+        : node
+    setSelectedNode((prev) => (prev ? merge(prev) : prev))
+    setSelectedNodes((prev) => prev.map(merge))
+  }
+
   const handleUpdateNode = (id: string, data: Partial<IntegrationNodeData>) => {
     setDocument((prev) =>
       updateSystemInView(prev, drillPath, id, (s) => ({
@@ -1240,6 +1276,32 @@ function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [closeTopDialog, handleSaveToDevice, menusHidden, toggleFullscreen, toggleMenus])
 
+  const handlePlaceAgentPlan = (plan: AgentPlan, placement: 'canvas' | 'tab') => {
+    if (placement === 'tab') {
+      const doc = createAgentPlanDocument(plan)
+      const newTab = createProjectTab(
+        applyAudit(doc, doc, { kind: 'add', summary: `Created agent plan “${plan.name}”` }),
+      )
+      setTabs((prev) => [...prev, newTab])
+      setActiveTabId(newTab.id)
+    } else {
+      updateActiveTab((tab) => {
+        const added = insertAgentPlan(tab.document, tab.drillPath, plan)
+        return {
+          ...tab,
+          document: applyAudit(tab.document, added.document, {
+            kind: 'add',
+            summary: `Added agent “${added.label}”`,
+          }),
+          drillPath: [...tab.drillPath, { systemId: added.systemId, label: added.label }],
+          canvasKey: tab.canvasKey + 1,
+        }
+      })
+    }
+    closeDialog('agentPlan')
+    clearSelection()
+  }
+
   const handleAiGenerate = (generated: ArchitectureDocument, placement: AiPlacement) => {
     if (placement === 'new-tab') {
       const newTab = createProjectTab(
@@ -1472,6 +1534,13 @@ function App() {
               setAiChatMounted(true)
               openDialog('aiDiagram')
             },
+          },
+          {
+            id: 'agent-plan',
+            label: 'Build agent & plan…',
+            hint: 'Design an agent, its tools, and the steps it follows',
+            icon: Route,
+            onSelect: () => openDialog('agentPlan'),
           },
           {
             id: 'analyze',
@@ -1809,12 +1878,15 @@ function App() {
               onDrillInto={handleDrillInto}
               onOpenSequenceHop={handleOpenSequenceHop}
               onSelectionChange={(node, edge, extras) => {
-                setSelectedEdges(extras?.selectedEdges ?? (edge ? [edge] : []))
                 if (extras?.openProperties === false) {
                   setSelectedNode(null)
+                  setSelectedNodes([])
                   setSelectedEdge(null)
+                  setSelectedEdges([])
                   return
                 }
+                setSelectedEdges(extras?.selectedEdges ?? (edge ? [edge] : []))
+                setSelectedNodes(extras?.selectedNodes ?? (node ? [node] : []))
                 setSelectedNode(node)
                 setSelectedEdge(edge)
               }}
@@ -1836,11 +1908,13 @@ function App() {
               properties={
                 <PropertiesPanel
                   selectedNode={selectedNode}
+                  selectedNodes={selectedNodes}
                   selectedEdge={selectedEdge}
                   selectedEdges={selectedEdges}
                   drillPath={drillPath}
                   document={document}
                   onUpdateNode={handleUpdateNode}
+                  onUpdateNodes={handleUpdateNodes}
                   onUpdateEdge={handleUpdateEdge}
                   onUpdateEdges={handleUpdateEdges}
                   onDeleteNode={handleDeleteNode}
@@ -1992,6 +2066,15 @@ function App() {
             }
             onImport={handleSaasImport}
             onClose={() => closeDialog('saas')}
+          />
+        </DialogLayer>
+      )}
+
+      {isDialogOpen('agentPlan') && (
+        <DialogLayer id="agentPlan" stack={dialogStack} onClose={() => closeDialog('agentPlan')}>
+          <AgentPlanModal
+            onPlace={handlePlaceAgentPlan}
+            onClose={() => closeDialog('agentPlan')}
           />
         </DialogLayer>
       )}

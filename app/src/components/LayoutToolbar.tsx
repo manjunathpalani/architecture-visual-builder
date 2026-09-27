@@ -131,7 +131,7 @@ export function LayoutToolbar({
         <button
           type="button"
           className="layout-btn"
-          title="Select every component on this diagram (Ctrl+A)"
+          title="Select components that can change together (Ctrl+A)"
           onClick={onSelectAll}
         >
           <BoxSelect size={15} />

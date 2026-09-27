@@ -105,6 +105,7 @@ import { DrawingToolbar, SHAPE_TOOLS } from './DrawingToolbar'
 import { LayoutToolbar } from './LayoutToolbar'
 import { getMinimapColor } from '../utils/nodeStyle'
 import { fanSharedConnectors } from '../utils/edgeRouting'
+import { largestPropertyCohort } from '../utils/bulkSelection'
 import { realignZoneDrawings, zoneNodesFromFlow } from '../utils/zoneRectangles'
 import {
   captureCanvasImage,
@@ -152,6 +153,20 @@ const nodeTypes = {
   shape: ShapeNode,
 }
 const edgeTypes = { integration: IntegrationEdge }
+const FIT_VIEW_OPTIONS = { padding: 0.2 }
+const SNAP_GRID: [number, number] = [16, 16]
+const DEFAULT_EDGE_OPTIONS = { type: 'integration', reconnectable: true as const }
+const PAN_ON_DRAG: number[] = [1, 2]
+
+function geometrySignature(nodes: Node[]): string {
+  return nodes
+    .map((node) => {
+      const width = Math.round(Number(node.measured?.width ?? node.style?.width ?? 0))
+      const height = Math.round(Number(node.measured?.height ?? node.style?.height ?? 0))
+      return `${node.id}:${Math.round(node.position.x)},${Math.round(node.position.y)},${width},${height}`
+    })
+    .join('|')
+}
 
 function swallowNextClick() {
   const swallow = (event: MouseEvent) => {
@@ -1607,21 +1622,18 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
 
   const selectAllComponents = useCallback(() => {
     if (isDrawing) return
-    const currentDrawings = drawingsRef.current
-    const drawingIds = currentDrawings.map((drawing) => drawing.id)
     ignoreDrawingClearRef.current = true
     setDrawTool('select')
-    setNodes((current) => current.map((node) => ({ ...node, selected: true })))
+    const cohort = largestPropertyCohort(nodesRef.current as Node<IntegrationNodeData>[])
+    const keep = new Set(cohort.nodes.map((node) => node.id))
+    setNodes((current) => current.map((node) => ({ ...node, selected: keep.has(node.id) })))
     setEdges((current) => current.map((edge) => ({ ...edge, selected: false })))
-    applyDrawingSelection(
-      drawingIds,
-      currentDrawings.find((drawing) => drawing.type === 'rectangle')?.id ?? drawingIds[0] ?? null,
-    )
+    applyDrawingSelection([])
     applyFlowFocus(null)
-    const first = nodesRef.current[0] as Node<IntegrationNodeData> | undefined
-    onSelectionChange(first ?? null, null, {
-      selectedNodes: nodesRef.current as Node<IntegrationNodeData>[],
+    onSelectionChange(cohort.nodes[0] ?? null, null, {
+      selectedNodes: cohort.nodes,
       selectedEdges: [],
+      openProperties: cohort.nodes.length > 0,
     })
     window.setTimeout(() => {
       ignoreDrawingClearRef.current = false
@@ -1717,6 +1729,20 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     return () => window.removeEventListener('paste', onPaste)
   }, [layoutLocked, placeImageAt, screenToFlowPosition])
 
+  const geometrySyncRaf = useRef(0)
+  const lastSyncedGeometry = useRef('')
+  const scheduleGeometrySync = useCallback(() => {
+    if (geometrySyncRaf.current) return
+    geometrySyncRaf.current = requestAnimationFrame(() => {
+      geometrySyncRaf.current = 0
+      if (!canvasAliveRef.current) return
+      const signature = geometrySignature(nodesRef.current)
+      if (signature === lastSyncedGeometry.current) return
+      lastSyncedGeometry.current = signature
+      syncDocument(nodesRef.current, edgesRef.current)
+    })
+  }, [syncDocument])
+
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<IntegrationNodeData>>[]) => {
       const permittedChanges = layoutLocked
@@ -1727,16 +1753,41 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         (change) =>
           change.type === 'dimensions' || (change.type === 'position' && change.dragging === false),
       )
-      if (shouldSync) {
-        // React Flow reports dimensions while this canvas is rendering. Sync the
-        // document after that render so App is not updated mid-render.
-        requestAnimationFrame(() => {
-          syncDocument(nodesRef.current, edgesRef.current)
-        })
-      }
+      if (shouldSync) scheduleGeometrySync()
     },
-    [layoutLocked, onNodesChange, syncDocument],
+    [layoutLocked, onNodesChange, scheduleGeometrySync],
   )
+
+  const handleEdgesChange = useCallback(
+    (changes: Parameters<typeof onEdgesChange>[0]) => {
+      onEdgesChange(changes)
+    },
+    [onEdgesChange],
+  )
+
+  const handleSelectionDragStart = useCallback((_event: unknown, dragged: Node[]) => {
+    const lead = dragged[0]
+    if (!lead) return
+    groupDragRef.current = {
+      last: { ...lead.position },
+      members: descendantIds(dragged.map((item) => item.id), nodesRef.current),
+    }
+  }, [])
+
+  const handleSelectionDrag = useCallback((_event: unknown, dragged: Node[]) => {
+    const drag = groupDragRef.current
+    const lead = dragged[0]
+    if (!drag || !lead) return
+    const dx = lead.position.x - drag.last.x
+    const dy = lead.position.y - drag.last.y
+    if (dx === 0 && dy === 0) return
+    drag.last = { ...lead.position }
+    setEdges((current) => shiftInternalWaypoints(current, drag.members, dx, dy))
+  }, [setEdges])
+
+  const handleSelectionStart = useCallback(() => {
+    marqueeSelectingRef.current = true
+  }, [])
 
   const updateEdgeGeometry = useCallback(
     (edgeId: string, patch: Partial<IntegrationEdgeData>) => {
@@ -1878,6 +1929,18 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     setDrawingOverrides(new Map())
     drawingMoveWithNodesRef.current = null
   }, [drawings, saveDrawings])
+
+  const handleNodeDragStop = useCallback(() => {
+    groupDragRef.current = null
+    persistNodePositions()
+    persistMovedDrawings()
+  }, [persistMovedDrawings, persistNodePositions])
+
+  const handleSelectionDragStop = useCallback(() => {
+    groupDragRef.current = null
+    persistNodePositions()
+    persistMovedDrawings()
+  }, [persistMovedDrawings, persistNodePositions])
 
   const onNodeDragStart = useCallback(
     (_event: unknown, node: Node) => {
@@ -2056,9 +2119,10 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       }
 
       const fromMarquee = marqueeSelectingRef.current
-      const openProperties = !fromMarquee && selNodes.length + selEdges.length === 1
-      onSelectionChange(fromMarquee ? null : node, fromMarquee ? null : edge, {
-        selectedNodes: selNodes as Node<IntegrationNodeData>[],
+      const edgeGroup = selNodes.length === 0 && selEdges.length > 1
+      const openProperties = edgeGroup || (!fromMarquee && selNodes.length + selEdges.length === 1)
+      onSelectionChange(edgeGroup || fromMarquee ? null : node, edgeGroup ? edge : fromMarquee ? null : edge, {
+        selectedNodes: edgeGroup ? [] : (selNodes as Node<IntegrationNodeData>[]),
         selectedEdges: selEdges as Edge<IntegrationEdgeData>[],
         openProperties,
       })
@@ -2085,9 +2149,11 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
       if (isDrawMode && !isShapeTool && !isRectTool) return
       marqueeSelectingRef.current = false
       applyFlowFocus(null, edge.id)
+      const selectedLines = edgesRef.current.filter((item) => item.selected) as Edge<IntegrationEdgeData>[]
+      const group = selectedLines.length > 1 && selectedLines.some((item) => item.id === edge.id) ? selectedLines : [edge]
       onSelectionChange(null, edge, {
         selectedNodes: [],
-        selectedEdges: [edge],
+        selectedEdges: group,
         openProperties: true,
       })
     },
@@ -2224,50 +2290,22 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         nodes={nodes}
         edges={edges}
         onNodesChange={handleNodesChange}
-        onEdgesChange={(changes) => {
-          onEdgesChange(changes)
-        }}
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onReconnect={onReconnect}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}
-        onNodeDragStop={() => {
-          groupDragRef.current = null
-          persistNodePositions()
-          persistMovedDrawings()
-        }}
-        onSelectionDragStart={(_event, nodes) => {
-          const lead = nodes[0]
-          if (!lead) return
-          groupDragRef.current = {
-            last: { ...lead.position },
-            members: descendantIds(nodes.map((item) => item.id), nodesRef.current),
-          }
-        }}
-        onSelectionDrag={(_event, nodes) => {
-          const drag = groupDragRef.current
-          const lead = nodes[0]
-          if (!drag || !lead) return
-          const dx = lead.position.x - drag.last.x
-          const dy = lead.position.y - drag.last.y
-          if (dx === 0 && dy === 0) return
-          drag.last = { ...lead.position }
-          setEdges((current) => shiftInternalWaypoints(current, drag.members, dx, dy))
-        }}
-        onSelectionDragStop={() => {
-          groupDragRef.current = null
-          persistNodePositions()
-          persistMovedDrawings()
-        }}
+        onNodeDragStop={handleNodeDragStop}
+        onSelectionDragStart={handleSelectionDragStart}
+        onSelectionDrag={handleSelectionDrag}
+        onSelectionDragStop={handleSelectionDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
-        onSelectionStart={() => {
-          marqueeSelectingRef.current = true
-        }}
+        onSelectionStart={handleSelectionStart}
         onSelectionChange={onSelectionChangeHandler}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
@@ -2277,24 +2315,24 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         edgesReconnectable={(!isDrawMode || isRectTool) && !layoutLocked}
         reconnectRadius={18}
         connectionMode={ConnectionMode.Loose}
-        panOnDrag={isDrawMode ? false : [1, 2]}
+        panOnDrag={isDrawMode ? false : PAN_ON_DRAG}
         panActivationKeyCode="Space"
         selectionOnDrag={!isDrawMode}
         selectionMode={SelectionMode.Partial}
         selectNodesOnDrag={false}
         nodeDragThreshold={4}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={FIT_VIEW_OPTIONS}
         minZoom={0.15}
         maxZoom={2}
         onInit={(instance) => {
           instance.fitView({ padding: 0.2, duration: 0 })
         }}
         snapToGrid={!isDrawMode}
-        snapGrid={[16, 16]}
+        snapGrid={SNAP_GRID}
         multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
         selectionKeyCode={null}
-        defaultEdgeOptions={{ type: 'integration', reconnectable: true }}
+        defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
         connectionLineComponent={IntegrationConnectionLine}
         deleteKeyCode={isDrawMode ? null : ['Backspace', 'Delete']}
         elevateNodesOnSelect={false}

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Database, Layers, PanelRight, PictureInPicture2, Scale, X, ZoomIn } from 'lucide-react'
 import { ChangeDesignSection } from './ChangeDesignSection'
 import {
@@ -55,6 +55,8 @@ import { hasRichNotes } from '../utils/richNotes'
 import { CloudInfrastructureSection } from './CloudInfrastructureSection'
 import { NfrTemplateSection } from './NfrTemplateSection'
 import { nfrSummary, parseAppliedNfrs } from '../utils/nfrCatalog'
+import { BulkProperties, cohortTitle } from './BulkProperties'
+import { propertyCohort } from '../utils/bulkSelection'
 import {
   diagramInfraSummary,
   inheritInfrastructure,
@@ -84,11 +86,13 @@ import {
 
 interface PropertiesPanelProps {
   selectedNode: Node<IntegrationNodeData> | null
+  selectedNodes?: Node<IntegrationNodeData>[]
   selectedEdge: Edge<IntegrationEdgeData> | null
   selectedEdges?: Edge<IntegrationEdgeData>[]
   document: ArchitectureDocument
   drillPath: DiagramPath
   onUpdateNode: (id: string, data: Partial<IntegrationNodeData>) => void
+  onUpdateNodes?: (ids: string[], data: Partial<IntegrationNodeData>) => void
   onUpdateEdge: (id: string, data: Partial<IntegrationEdgeData>) => void
   onUpdateEdges?: (ids: string[], data: Partial<IntegrationEdgeData>) => void
   onDeleteNode: (id: string) => void
@@ -120,13 +124,40 @@ const DIAGRAM_SHAPES: DiagramShape[] = [
   'package', 'datastore', 'queue', 'c4-person', 'c4-system', 'c4-container',
 ]
 
+type EdgeCommonKey =
+  | 'color'
+  | 'lineStyle'
+  | 'lineAnimation'
+  | 'lineWeight'
+  | 'routing'
+  | 'direction'
+  | 'protocol'
+  | 'frequency'
+  | 'dataFormat'
+  | 'changeStatus'
+
+const EDGE_COMMON_FIELDS: Array<{ id: EdgeCommonKey; label: string }> = [
+  { id: 'color', label: 'Line color' },
+  { id: 'lineStyle', label: 'Line style' },
+  { id: 'lineAnimation', label: 'Animation' },
+  { id: 'lineWeight', label: 'Thickness' },
+  { id: 'routing', label: 'Routing' },
+  { id: 'direction', label: 'Arrow direction' },
+  { id: 'protocol', label: 'Protocol' },
+  { id: 'frequency', label: 'Frequency' },
+  { id: 'dataFormat', label: 'Data format' },
+  { id: 'changeStatus', label: 'Architecture state' },
+]
+
 export function PropertiesPanel({
   selectedNode,
+  selectedNodes,
   selectedEdge,
   selectedEdges,
   document,
   drillPath,
   onUpdateNode,
+  onUpdateNodes,
   onUpdateEdge,
   onUpdateEdges,
   onDeleteNode,
@@ -146,6 +177,18 @@ export function PropertiesPanel({
 }: PropertiesPanelProps) {
   const { isOpen, toggle, expandAll, mergeAll } = usePropertyGroups()
   const formRef = useRef<HTMLDivElement>(null)
+  const edgeSelectionKey = (selectedEdges ?? []).map((edge) => edge.id).sort().join('|')
+  const [edgeCommon, setEdgeCommon] = useState<Set<EdgeCommonKey>>(() => new Set())
+  useEffect(() => {
+    if ((selectedEdges?.length ?? 0) < 2) {
+      setEdgeCommon(new Set())
+      return
+    }
+    const records = selectedEdges!.map((edge) => liveEdgeData(document, drillPath, edge))
+    setEdgeCommon(commonEdgeKeys(records))
+    // Recompute only when a different group of lines is selected.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edgeSelectionKey])
 
   const expandGroups = (ids: PropertyGroupId[]) => {
     expandAll(ids)
@@ -196,6 +239,29 @@ export function PropertiesPanel({
             onChangeDiagram={(infrastructure) => onUpdateMetadata?.({ infrastructure })}
           />
         </div>
+      </aside>
+    )
+  }
+
+  const bulkNodes = (selectedNodes ?? []).filter((node) => node.id)
+  if (bulkNodes.length > 1 && onUpdateNodes) {
+    const cohort = propertyCohort(bulkNodes[0].data.systemType)
+    const same = bulkNodes.filter((node) => propertyCohort(node.data.systemType) === cohort)
+    return (
+      <aside className={`properties ${variant === 'flyout' ? 'is-flyout' : ''}`}>
+        <div className="panel-header">
+          <div>
+            <h2>{cohortTitle(cohort, same.length)}</h2>
+            <p>Shared properties</p>
+          </div>
+          {headerActions}
+        </div>
+        <BulkProperties
+          nodes={same}
+          document={document}
+          drillPath={drillPath}
+          onUpdateNodes={onUpdateNodes}
+        />
       </aside>
     )
   }
@@ -868,6 +934,19 @@ export function PropertiesPanel({
         ? selectedEdges!.map((edge) => edge.id)
         : [selectedEdge.id]
     const bulkEdges = bulkEdgeIds.length > 1
+    const edgeRecords = bulkEdges
+      ? (selectedEdges ?? []).map((edge) => liveEdgeData(document, drillPath, edge))
+      : [data]
+    const sharedEdge = (key: EdgeCommonKey) => unanimous(edgeRecords.map((item) => edgeFieldValue(item, key)))
+    const showCommon = (key: EdgeCommonKey) => !bulkEdges || edgeCommon.has(key)
+    const toggleCommon = (key: EdgeCommonKey) => {
+      setEdgeCommon((current) => {
+        const next = new Set(current)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+    }
     const patchEdge = (patch: Partial<IntegrationEdgeData>) => {
       if (bulkEdges && onUpdateEdges) onUpdateEdges(bulkEdgeIds, patch)
       else onUpdateEdge(selectedEdge.id, patch)
@@ -877,15 +956,34 @@ export function PropertiesPanel({
         <div className="panel-header">
           <div>
             <h2>{bulkEdges ? `${bulkEdgeIds.length} integrations` : 'Integration Properties'}</h2>
-            <p>{bulkEdges ? 'Shared properties — changes apply to all selected' : data.label}</p>
+            <p>{bulkEdges ? 'Choose the properties to set on every selected line' : data.label}</p>
           </div>
           {headerActions}
         </div>
         <div className="property-form" ref={formRef}>
           {bulkEdges && (
-            <p className="code-link-hint">
-              Colour, protocol, frequency, line style, and arrows update every selected integration together.
-            </p>
+            <fieldset className="edge-common-fields">
+              <legend>Common properties</legend>
+              <p className="code-link-hint">
+                Properties that already match are selected. Check any others you want to set on all {bulkEdgeIds.length} lines.
+              </p>
+              <div className="edge-common-grid">
+                {EDGE_COMMON_FIELDS.map((field) => {
+                  const shared = sharedEdge(field.id)
+                  return (
+                    <label key={field.id} className={edgeCommon.has(field.id) ? 'is-on' : ''}>
+                      <input
+                        type="checkbox"
+                        checked={edgeCommon.has(field.id)}
+                        onChange={() => toggleCommon(field.id)}
+                      />
+                      <span>{field.label}</span>
+                      <em>{shared == null ? 'Mixed' : sharedLabel(field.id, shared)}</em>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
           )}
           <PropertyGroupToolbar
             onExpandAll={() => expandGroups(EDGE_PROPERTY_GROUPS)}
@@ -921,15 +1019,16 @@ export function PropertiesPanel({
             expanded={isOpen('line')}
             onToggle={toggle}
           >
+          {showCommon('color') && (
           <div className="color-picker-section">
-            <span className="color-picker-label">Line color</span>
+            <span className="color-picker-label">Line color{bulkEdges && sharedEdge('color') == null ? ' (mixed)' : ''}</span>
             <p className="code-link-hint">Shown on this integration regardless of the canvas Flow color mode.</p>
             <div className="color-presets">
               {COLOR_PRESETS.map((color) => (
                 <button
                   key={color}
                   type="button"
-                  className={`color-swatch ${data.color === color ? 'active' : ''}`}
+                  className={`color-swatch ${(bulkEdges ? sharedEdge('color') : data.color) === color ? 'active' : ''}`}
                   style={{ background: color }}
                   title={color}
                   onClick={() => patchEdge({ color })}
@@ -951,6 +1050,8 @@ export function PropertiesPanel({
               </button>
             </div>
           </div>
+          )}
+          {showCommon('lineStyle') && (
           <div className="arrow-direction-section">
             <span className="color-picker-label">Line style</span>
             <div className="arrow-direction-grid line-weight-grid">
@@ -958,7 +1059,7 @@ export function PropertiesPanel({
                 <button
                   key={option.id}
                   type="button"
-                  className={`arrow-direction-btn ${parseLineStyle(data.lineStyle) === option.id ? 'active' : ''}`}
+                  className={`arrow-direction-btn ${(bulkEdges ? sharedEdge('lineStyle') : parseLineStyle(data.lineStyle)) === option.id ? 'active' : ''}`}
                   title={option.hint}
                   onClick={() => patchEdge({ lineStyle: option.id })}
                 >
@@ -968,12 +1069,14 @@ export function PropertiesPanel({
               ))}
             </div>
           </div>
+          )}
+          {showCommon('lineAnimation') && (
           <div className="arrow-direction-section">
             <span className="color-picker-label">Line animation</span>
             <div className="arrow-direction-grid line-weight-grid">
               <button
                 type="button"
-                className={`arrow-direction-btn ${parseLineAnimation(data.lineAnimation) ? 'active' : ''}`}
+                className={`arrow-direction-btn ${(bulkEdges ? sharedEdge('lineAnimation') : (parseLineAnimation(data.lineAnimation) ? 'on' : 'off')) === 'on' ? 'active' : ''}`}
                 title="Moving dots along this integration"
                 onClick={() => patchEdge({ lineAnimation: true })}
               >
@@ -981,7 +1084,7 @@ export function PropertiesPanel({
               </button>
               <button
                 type="button"
-                className={`arrow-direction-btn ${parseLineAnimation(data.lineAnimation) ? '' : 'active'}`}
+                className={`arrow-direction-btn ${(bulkEdges ? sharedEdge('lineAnimation') : (parseLineAnimation(data.lineAnimation) ? 'on' : 'off')) === 'off' ? 'active' : ''}`}
                 title="Show a static line with no moving dots"
                 onClick={() => patchEdge({ lineAnimation: false })}
               >
@@ -993,6 +1096,8 @@ export function PropertiesPanel({
               {data.canvasLineAnimation === false ? ' All line animation is currently off in Tools.' : ''}
             </span>
           </div>
+          )}
+          {showCommon('lineWeight') && (
           <div className="arrow-direction-section">
             <span className="color-picker-label">Line thickness</span>
             <div className="arrow-direction-grid line-weight-grid">
@@ -1000,7 +1105,7 @@ export function PropertiesPanel({
                 <button
                   key={option.id}
                   type="button"
-                  className={`arrow-direction-btn ${parseLineWeight(data.lineWeight) === option.id ? 'active' : ''}`}
+                  className={`arrow-direction-btn ${(bulkEdges ? sharedEdge('lineWeight') : parseLineWeight(data.lineWeight)) === option.id ? 'active' : ''}`}
                   onClick={() => patchEdge({ lineWeight: option.id })}
                 >
                   <strong className={`line-weight-preview weight-${option.id}`} />
@@ -1009,16 +1114,19 @@ export function PropertiesPanel({
               ))}
             </div>
           </div>
+          )}
+          {showCommon('routing') && (
           <label>
             Line routing
             <select
-              value={parseEdgeRouting(data.routing)}
+              value={bulkEdges ? (sharedEdge('routing') ?? '') : parseEdgeRouting(data.routing)}
               onChange={(e) =>
                 patchEdge({
                   routing: e.target.value as EdgeRouting,
                 })
               }
             >
+              {bulkEdges && sharedEdge('routing') == null && <option value="">Mixed</option>}
               {EDGE_ROUTING_OPTIONS.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
@@ -1031,7 +1139,8 @@ export function PropertiesPanel({
               Drag the line to move it. Drag a connector end to another port. Drag the dots to bend it.
             </span>
           </label>
-          {(data.waypoints?.length ?? 0) > 0 && (
+          )}
+          {!bulkEdges && (data.waypoints?.length ?? 0) > 0 && (
             <button
               type="button"
               className="btn-secondary"
@@ -1040,6 +1149,7 @@ export function PropertiesPanel({
               Reset bends
             </button>
           )}
+          {showCommon('direction') && (
           <div className="arrow-direction-section">
             <span className="color-picker-label">Arrow direction</span>
             <div className="arrow-direction-grid">
@@ -1047,7 +1157,7 @@ export function PropertiesPanel({
                 <button
                   key={option.id}
                   type="button"
-                  className={`arrow-direction-btn ${data.direction === option.id ? 'active' : ''}`}
+                  className={`arrow-direction-btn ${(bulkEdges ? sharedEdge('direction') : data.direction) === option.id ? 'active' : ''}`}
                   onClick={() =>
                     patchEdge({ direction: option.id })
                   }
@@ -1061,7 +1171,16 @@ export function PropertiesPanel({
             <button
               type="button"
               className="btn-secondary"
-              onClick={() =>
+              onClick={() => {
+                if (bulkEdges) {
+                  for (const edge of selectedEdges ?? []) {
+                    const current = liveEdgeData(document, drillPath, edge)
+                    onUpdateEdge(edge.id, {
+                      direction: current.direction === 'outbound' ? 'inbound' : current.direction === 'inbound' ? 'outbound' : 'outbound',
+                    })
+                  }
+                  return
+                }
                 patchEdge({
                   direction:
                     data.direction === 'outbound'
@@ -1070,7 +1189,7 @@ export function PropertiesPanel({
                         ? 'outbound'
                         : 'outbound',
                 })
-              }
+              }}
             >
               Reverse arrow
             </button>
@@ -1078,6 +1197,7 @@ export function PropertiesPanel({
               Select the connector, then pick which way the arrow points. Reverse swaps source and target arrows.
             </span>
           </div>
+          )}
           </PropertyGroup>
           {!bulkEdges && (
           <PropertyGroup
@@ -1135,16 +1255,18 @@ export function PropertiesPanel({
             expanded={isOpen('spec')}
             onToggle={toggle}
           >
+          {showCommon('protocol') && (
           <label>
             Protocol
             <select
-              value={data.protocol}
+              value={bulkEdges ? (sharedEdge('protocol') ?? '') : data.protocol}
               onChange={(e) =>
                 patchEdge({
                   protocol: e.target.value as IntegrationProtocol,
                 })
               }
             >
+              {bulkEdges && sharedEdge('protocol') == null && <option value="">Mixed</option>}
               {PROTOCOLS.map((p) => (
                 <option key={p} value={p}>
                   {p}
@@ -1152,16 +1274,19 @@ export function PropertiesPanel({
               ))}
             </select>
           </label>
+          )}
+          {showCommon('frequency') && (
           <label>
             Frequency
             <select
-              value={data.frequency}
+              value={bulkEdges ? (sharedEdge('frequency') ?? '') : data.frequency}
               onChange={(e) =>
                 patchEdge({
                   frequency: e.target.value as IntegrationFrequency,
                 })
               }
             >
+              {bulkEdges && sharedEdge('frequency') == null && <option value="">Mixed</option>}
               {FREQUENCIES.map((f) => (
                 <option key={f} value={f}>
                   {f}
@@ -1169,13 +1294,17 @@ export function PropertiesPanel({
               ))}
             </select>
           </label>
+          )}
+          {showCommon('dataFormat') && (
           <label>
             Data Format
             <input
-              value={data.dataFormat}
+              value={bulkEdges ? (sharedEdge('dataFormat') ?? '') : data.dataFormat}
+              placeholder={bulkEdges && sharedEdge('dataFormat') == null ? 'Mixed' : undefined}
               onChange={(e) => patchEdge({ dataFormat: e.target.value })}
             />
           </label>
+          )}
           {!bulkEdges && (
           <label>
             Description
@@ -1187,14 +1316,16 @@ export function PropertiesPanel({
           </label>
           )}
 
+          {showCommon('changeStatus') && (
           <label>
             Architecture state
             <select
-              value={parseChangeStatus(data.changeStatus)}
+              value={bulkEdges ? (sharedEdge('changeStatus') ?? '') : parseChangeStatus(data.changeStatus)}
               onChange={(e) =>
                 patchEdge({ changeStatus: e.target.value as ChangeStatus })
               }
             >
+              {bulkEdges && sharedEdge('changeStatus') == null && <option value="">Mixed</option>}
               {CHANGE_STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {CHANGE_STATUS_LABELS[status]}
@@ -1202,9 +1333,15 @@ export function PropertiesPanel({
               ))}
             </select>
             <span className="code-link-hint">
-              {CHANGE_STATUS_HINTS[parseChangeStatus(data.changeStatus)]}
+              {(() => {
+                const status = bulkEdges ? sharedEdge('changeStatus') : parseChangeStatus(data.changeStatus)
+                return status
+                  ? CHANGE_STATUS_HINTS[parseChangeStatus(status)]
+                  : 'Selected lines do not share one architecture state yet.'
+              })()}
             </span>
           </label>
+          )}
 
           {!bulkEdges && (isApiIntegration(data) || data.interfaceSpec) && (
             <InterfaceSpecSection
@@ -1248,6 +1385,56 @@ export function PropertiesPanel({
   }
 
   return null
+}
+
+function unanimous(values: string[]): string | undefined {
+  if (values.length === 0) return undefined
+  const first = values[0]
+  return values.every((value) => value === first) ? first : undefined
+}
+
+function edgeFieldValue(data: IntegrationEdgeData, key: EdgeCommonKey): string {
+  switch (key) {
+    case 'color':
+      return data.color ?? ''
+    case 'lineStyle':
+      return parseLineStyle(data.lineStyle)
+    case 'lineAnimation':
+      return parseLineAnimation(data.lineAnimation) ? 'on' : 'off'
+    case 'lineWeight':
+      return parseLineWeight(data.lineWeight)
+    case 'routing':
+      return parseEdgeRouting(data.routing)
+    case 'direction':
+      return data.direction
+    case 'protocol':
+      return data.protocol
+    case 'frequency':
+      return data.frequency
+    case 'dataFormat':
+      return data.dataFormat ?? ''
+    case 'changeStatus':
+      return parseChangeStatus(data.changeStatus)
+  }
+}
+
+function commonEdgeKeys(records: IntegrationEdgeData[]): Set<EdgeCommonKey> {
+  const keys = new Set<EdgeCommonKey>()
+  for (const field of EDGE_COMMON_FIELDS) {
+    if (unanimous(records.map((item) => edgeFieldValue(item, field.id))) != null) keys.add(field.id)
+  }
+  return keys
+}
+
+function sharedLabel(key: EdgeCommonKey, value: string): string {
+  if (key === 'color') return value || 'Default'
+  if (key === 'lineAnimation') return value === 'on' ? 'On' : 'Off'
+  if (key === 'changeStatus') return CHANGE_STATUS_LABELS[parseChangeStatus(value)]
+  if (key === 'routing') return EDGE_ROUTING_OPTIONS.find((option) => option.id === value)?.label ?? value
+  if (key === 'lineStyle') return LINE_STYLE_OPTIONS.find((option) => option.id === value)?.label ?? value
+  if (key === 'lineWeight') return LINE_WEIGHT_OPTIONS.find((option) => option.id === value)?.label ?? value
+  if (key === 'direction') return ARROW_DIRECTION_OPTIONS.find((option) => option.id === value)?.label ?? value
+  return value || 'Default'
 }
 
 function liveNodeData(
