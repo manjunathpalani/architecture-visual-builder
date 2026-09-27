@@ -104,6 +104,8 @@ import { PropertiesFlyout } from './PropertiesFlyout'
 import { DrawingToolbar, SHAPE_TOOLS } from './DrawingToolbar'
 import { LayoutToolbar } from './LayoutToolbar'
 import { getMinimapColor } from '../utils/nodeStyle'
+import { fanSharedConnectors } from '../utils/edgeRouting'
+import { realignZoneDrawings, zoneNodesFromFlow } from '../utils/zoneRectangles'
 import {
   captureCanvasImage,
   captureReactFlowPng,
@@ -1082,6 +1084,20 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     [diagramPath, patchDocument],
   )
 
+  const applyLayout = useCallback(
+    (nextNodes: Node<IntegrationNodeData>[], nextEdges: Edge<IntegrationEdgeData>[]) => {
+      const drawings = realignZoneDrawings(
+        drawingsRef.current,
+        zoneNodesFromFlow(nodesRef.current),
+        zoneNodesFromFlow(nextNodes),
+      )
+      patchDocument((prev) =>
+        updateDrawingsAtPath(syncFlowToDocument(prev, diagramPath, nextNodes, nextEdges), diagramPath, drawings),
+      )
+    },
+    [diagramPath, patchDocument],
+  )
+
   const commitDrawing = useCallback(
     (type: DrawingElement['type'], points: DrawingPoint[], extra?: Partial<DrawingElement>) => {
       if (points.length === 0) return
@@ -1712,13 +1728,14 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
           change.type === 'dimensions' || (change.type === 'position' && change.dragging === false),
       )
       if (shouldSync) {
-        setNodes((current) => {
-          syncDocument(current, edgesRef.current)
-          return current
+        // React Flow reports dimensions while this canvas is rendering. Sync the
+        // document after that render so App is not updated mid-render.
+        requestAnimationFrame(() => {
+          syncDocument(nodesRef.current, edgesRef.current)
         })
       }
     },
-    [layoutLocked, onNodesChange, setNodes, syncDocument],
+    [layoutLocked, onNodesChange, syncDocument],
   )
 
   const updateEdgeGeometry = useCallback(
@@ -1759,7 +1776,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         },
       }
       setEdges((eds) => {
-        const updated = addEdge(newEdge, eds)
+        const updated = fanSharedConnectors(addEdge(newEdge, eds), nodesRef.current)
         syncDocument(nodesRef.current, updated)
         return updated
       })
@@ -1771,7 +1788,10 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
     (oldEdge: Edge<IntegrationEdgeData>, newConnection: Connection) => {
       if ((isDrawMode && !isRectTool) || layoutLocked) return
       setEdges((eds) => {
-        const updated = reconnectEdge<Edge<IntegrationEdgeData>>(oldEdge, newConnection, eds)
+        const updated = fanSharedConnectors(
+          reconnectEdge<Edge<IntegrationEdgeData>>(oldEdge, newConnection, eds),
+          nodesRef.current,
+        )
         syncDocument(nodesRef.current, updated)
         return updated
       })
@@ -2566,7 +2586,7 @@ export const IntegrationCanvas = forwardRef<IntegrationCanvasHandle, Integration
         selectedDrawingCount={selectedDrawingIds.size}
       />
       <LayoutToolbar
-        onLayoutApplied={syncDocument}
+        onLayoutApplied={applyLayout}
         layoutLocked={layoutLocked}
         onToggleLayoutLock={toggleLayoutLock}
         selectedNodeCount={nodes.filter((node) => node.selected && node.type !== 'group' && node.data.systemType !== 'group').length}

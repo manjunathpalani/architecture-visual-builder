@@ -13,6 +13,7 @@ import {
   type ArchitectureStateView,
 } from './architectureState'
 import { collectChangeTaskSystemIds } from './changeDesign'
+import { fanSharedConnectors } from './edgeRouting'
 
 function mergeSystemsPreservingSubDiagrams(
   incoming: SystemNode[],
@@ -563,5 +564,6 @@ export function documentToFlowAtPath(
     }
   })
 
+  flow.edges = fanSharedConnectors(flow.edges, flow.nodes)
   return flow
 }

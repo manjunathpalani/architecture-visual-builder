@@ -210,12 +210,13 @@ async function handleDiagram(body: Record<string, unknown>): Promise<AiApiResult
     return { status: 400, payload: { error: 'Prompt is too long (max 8000 characters)' } }
   }
 
+  const drawPrompt = stringField(body.systemPrompt).slice(0, 16000) || SYSTEM_PROMPT
   const viaLm = await completeCopilotInVsCode({
     provider: provider.id,
     prompt,
     context: stringField(body.context) || undefined,
     images,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: drawPrompt,
   })
   if (viaLm) return { status: 200, payload: { text: viaLm, provider: provider.id } }
 
@@ -233,6 +234,7 @@ async function handleDiagram(body: Record<string, unknown>): Promise<AiApiResult
     model: stringField(body.model) || envValue(provider.envModel ?? '') || provider.defaultModel,
     azureEndpoint: stringField(body.azureEndpoint) || envValue('AZURE_OPENAI_ENDPOINT'),
     azureDeployment: stringField(body.azureDeployment) || envValue('AZURE_OPENAI_DEPLOYMENT'),
+    systemPrompt: drawPrompt,
   })
   return { status: 200, payload: { text, provider: provider.id } }
 }

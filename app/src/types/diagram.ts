@@ -70,6 +70,8 @@ export interface DrawingElement {
   fontStyle?: 'normal' | 'italic'
   /** data:image URL for type === 'image' */
   imageHref?: string
+  /** Components this rectangle frames. Kept so a redraw can move the box with them. */
+  systemIds?: string[]
 }
 
 export interface SubDiagram {

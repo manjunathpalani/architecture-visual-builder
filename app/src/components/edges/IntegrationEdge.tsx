@@ -2,6 +2,7 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   useReactFlow,
+  useStore,
   useStoreApi,
   type EdgeProps,
 } from '@xyflow/react'
@@ -11,7 +12,7 @@ import { parseLineAnimation, parseLineStyle, parseLineWeight, type Position } fr
 import type { EdgeFocusRelation, IntegrationEdgeData } from '../../utils/jsonIO'
 import { DIRECTION_COLORS, resolveEdgeColor } from '../../utils/flowTrace'
 import { CHANGE_STATUS_COLORS, parseChangeStatus } from '../../utils/architectureState'
-import { buildEdgePath, nearestWaypointInsertIndex, pointAlongPath } from '../../utils/edgeRouting'
+import { buildEdgePath, nearestWaypointInsertIndex, pointAlongPath, sharedRouteOffset } from '../../utils/edgeRouting'
 import { useEdgeEdit } from './edgeEdit'
 import { useDiagramLock } from '../nodes/diagramLockContext'
 import { useDrillIn, useSequenceHop } from '../nodes/drillInContext'
@@ -94,6 +95,28 @@ export function IntegrationEdge({
   }, [])
 
   const waypoints = edgeData?.waypoints ?? []
+  const routeOffset = useStore((state) => {
+    const self = state.edges.find((edge) => edge.id === id)
+    if (!self) return 0
+    const sameSource = self.source
+    const sameTarget = self.target
+    const sameSourceHandle = self.sourceHandle ?? ''
+    const sameTargetHandle = self.targetHandle ?? ''
+    const twins = state.edges.filter((edge) => {
+      return (
+        edge.source === sameSource &&
+        edge.target === sameTarget &&
+        (edge.sourceHandle ?? '') === sameSourceHandle &&
+        (edge.targetHandle ?? '') === sameTargetHandle
+      )
+    })
+    if (twins.length < 2) return 0
+    const ordered = [...twins].sort((a, b) => a.id.localeCompare(b.id))
+    return sharedRouteOffset(
+      ordered.findIndex((edge) => edge.id === id),
+      ordered.length,
+    )
+  })
   const { path: edgePath, labelX, labelY, points } = buildEdgePath({
     routing: edgeData?.routing,
     waypoints,
@@ -103,6 +126,7 @@ export function IntegrationEdge({
     targetY,
     sourcePosition,
     targetPosition,
+    routeOffset,
   })
 
   const direction = edgeData?.direction ?? 'outbound'

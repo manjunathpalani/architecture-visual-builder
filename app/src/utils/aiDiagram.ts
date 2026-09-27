@@ -36,6 +36,12 @@ const PROTOCOLS = new Set<IntegrationProtocol>([
 const FREQUENCIES = new Set<IntegrationFrequency>([
   'real-time', 'near-real-time', 'batch', 'event-driven', 'scheduled',
 ])
+const COMPONENT_SHAPES = new Set([
+  'actor', 'class', 'interface', 'component', 'process', 'decision', 'package',
+  'datastore', 'queue', 'c4-person', 'c4-system', 'c4-container',
+  'rectangle', 'rounded-rect', 'ellipse', 'diamond', 'triangle', 'hexagon',
+  'cylinder', 'parallelogram',
+])
 
 export const AI_PROMPT_EXAMPLES = [
   'Retail order-to-cash: Shopify storefront, Stripe payments, MuleSoft, SAP S/4HANA, and a warehouse WMS',
@@ -108,6 +114,7 @@ export async function generateArchitectureFromPrompt(
   context?: string,
   providerId?: AiProviderId,
   images?: AiImage[],
+  systemPrompt?: string,
 ): Promise<ArchitectureDocument> {
   const settings = loadAiSettings()
   const provider = providerId ?? settings.selectedProvider
@@ -120,6 +127,7 @@ export async function generateArchitectureFromPrompt(
       body: JSON.stringify({
         prompt,
         context,
+        systemPrompt,
         provider,
         images: images?.map((image) => ({ mimeType: image.mimeType, dataUrl: image.dataUrl })),
         apiKey: getEngineApiKey(provider),
@@ -331,8 +339,9 @@ function normalizeSystem(raw: unknown, index: number, aliases: Map<string, strin
       environment: optionalString(properties.environment),
       description: optionalString(properties.description) ?? optionalString(item.description),
       componentType: optionalString(properties.componentType),
-      shape: optionalString(properties.shape),
+      shape: allowedShape(properties.shape),
       owner: optionalString(properties.owner),
+      zone: optionalString(properties.zone),
     },
   }
 }
@@ -396,6 +405,11 @@ function optionalString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
   return trimmed || undefined
+}
+
+function allowedShape(value: unknown): string | undefined {
+  const shape = optionalString(value)
+  return shape && COMPONENT_SHAPES.has(shape) ? shape : undefined
 }
 
 function resolveRef(value: string, aliases: Map<string, string>): string {

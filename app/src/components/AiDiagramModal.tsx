@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ImagePlus, KeyRound, Loader2, Plus, Send, Sparkles, X } from 'lucide-react'
 import type { ArchitectureDocument } from '../types'
+import type { DiagramPath } from '../types/diagram'
 import {
   AI_PROVIDERS,
   getProvider,
@@ -11,7 +12,6 @@ import {
   type AiProviderId,
 } from '../utils/aiProviders'
 import {
-  AI_PROMPT_EXAMPLES,
   buildAiChatContext,
   fetchAiStatus,
   generateArchitectureFromPrompt,
@@ -19,6 +19,13 @@ import {
   type AiPlacement,
   type AiStatus,
 } from '../utils/aiDiagram'
+import {
+  buildDiagramSystemPrompt,
+  DIAGRAM_DRAW_KINDS,
+  resolveDiagramDraw,
+  summarizeCanvasForDraw,
+  type DiagramDrawSetting,
+} from '../utils/diagramDrawContext'
 import { filesToAiImages, type AiImage } from '../utils/aiImage'
 import {
   chatHasHistory,
@@ -31,6 +38,7 @@ import {
 interface AiDiagramModalProps {
   open: boolean
   currentDocument: ArchitectureDocument
+  drillPath: DiagramPath
   onGenerate: (document: ArchitectureDocument, placement: AiPlacement) => void
   onManageKeys: () => void
   onClose: () => void
@@ -43,6 +51,7 @@ function newId() {
 export function AiDiagramModal({
   open,
   currentDocument,
+  drillPath,
   onGenerate,
   onManageKeys,
   onClose,
@@ -52,6 +61,7 @@ export function AiDiagramModal({
   const [prompt, setPrompt] = useState(storedChat.draft ?? '')
   const [placement, setPlacement] = useState<AiPlacement>(storedChat.placement)
   const [useContext, setUseContext] = useState(storedChat.useContext)
+  const [diagramType, setDiagramType] = useState<DiagramDrawSetting>(storedChat.diagramType)
   const [provider, setProvider] = useState<AiProviderId>(initial.selectedProvider)
   const [userKey, setUserKey] = useState(initial.keys[initial.selectedProvider] ?? '')
   const [azureEndpoint, setAzureEndpoint] = useState(initial.azureEndpoint ?? '')
@@ -78,9 +88,10 @@ export function AiDiagramModal({
       messages,
       placement,
       useContext,
+      diagramType,
       draft: prompt,
     })
-  }, [messages, placement, useContext, prompt])
+  }, [messages, placement, useContext, diagramType, prompt])
 
   useEffect(() => {
     const node = listRef.current
@@ -88,6 +99,7 @@ export function AiDiagramModal({
     node.scrollTop = node.scrollHeight
   }, [messages, loading])
 
+  const draw = resolveDiagramDraw(currentDocument, drillPath, diagramType)
   const info = getProvider(provider)
   const serverReady = Boolean(status?.providers.find((p) => p.id === provider)?.configured)
   const hasKey = isEngineReady(provider, status) || Boolean(userKey.trim())
@@ -247,11 +259,24 @@ export function AiDiagramModal({
     }
 
     try {
+      const draw = resolveDiagramDraw(currentDocument, drillPath, diagramType)
+      const canvasContext = summarizeCanvasForDraw(
+        currentDocument,
+        drillPath,
+        draw.kind,
+        useContext,
+      )
       const context = buildAiChatContext(
         history.filter((message) => message.id !== 'welcome'),
-        useContext ? currentDocument : undefined,
+        undefined,
       )
-      const document = await generateArchitectureFromPrompt(userMessage.text, context, provider, attached)
+      const document = await generateArchitectureFromPrompt(
+        userMessage.text,
+        [canvasContext, context].filter(Boolean).join('\n\n'),
+        provider,
+        attached,
+        buildDiagramSystemPrompt(draw.kind),
+      )
       onGenerate(document, placement)
       setUseContext(true)
       setPlacement((prev) => (prev === 'new-tab' ? 'replace' : prev))
@@ -260,7 +285,7 @@ export function AiDiagramModal({
         {
           id: newId(),
           role: 'assistant',
-          text: `Drew **${document.metadata.name}** — ${document.systems.length} systems and ${document.integrations.length} integrations. Ask me to add, remove, or rearrange anything.`,
+          text: `Drew **${document.metadata.name}** as ${draw.info.label.toLowerCase()} — ${document.systems.length} systems and ${document.integrations.length} integrations on ${draw.canvasPath}. Ask me to add, remove, or rearrange anything.`,
         },
       ])
     } catch (err) {
@@ -289,6 +314,7 @@ export function AiDiagramModal({
     setMessages(next.messages)
     setPlacement(next.placement)
     setUseContext(next.useContext)
+    setDiagramType(next.diagramType)
     setPrompt('')
     setImages([])
     inputRef.current?.focus()
@@ -307,7 +333,9 @@ export function AiDiagramModal({
               <Sparkles size={18} />
               Draw with AI
             </h2>
-            <p>Chat to design and refine the diagram · {info.shortLabel}</p>
+            <p>
+              {draw.info.label} on {draw.canvasName} · {info.shortLabel}
+            </p>
           </div>
           <div className="ai-chat-header-actions">
             {hasHistory && (
@@ -345,6 +373,22 @@ export function AiDiagramModal({
             </select>
           </label>
           <label>
+            Diagram type
+            <select
+              value={diagramType}
+              onChange={(e) => setDiagramType(e.target.value as DiagramDrawSetting)}
+              disabled={loading}
+              title="Match this canvas, or force a component style"
+            >
+              <option value="auto">Match this canvas</option>
+              {DIAGRAM_DRAW_KINDS.map((kind) => (
+                <option key={kind.id} value={kind.id}>
+                  {kind.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
             Place
             <select
               value={placement}
@@ -363,8 +407,9 @@ export function AiDiagramModal({
               onChange={(e) => setUseContext(e.target.checked)}
               disabled={loading}
             />
-            Use current diagram
+            Use this canvas
           </label>
+          <p className="ai-draw-context">{draw.hint}</p>
         </div>
 
         <div className="ai-chat-messages" ref={listRef}>
@@ -391,7 +436,7 @@ export function AiDiagramModal({
           )}
           {messages.length === 1 && !loading && (
             <div className="ai-chat-suggestions">
-              {AI_PROMPT_EXAMPLES.map((example) => (
+              {draw.info.examples.map((example) => (
                 <button
                   key={example}
                   type="button"

@@ -5144,6 +5144,17 @@ body.is-toolbar-dragging {
   letter-spacing: 0;
 }
 
+.ai-draw-context {
+  flex: 1 0 100%;
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.4;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+}
+
 .ai-chat-context {
   flex-direction: row !important;
   align-items: center;

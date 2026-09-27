@@ -1,6 +1,7 @@
 import dagre from '@dagrejs/dagre'
 import type { Edge, Node } from '@xyflow/react'
 import type { IntegrationNodeData } from './jsonIO'
+import { absolutePosition, orderParentsFirst } from './nodeGrouping'
 
 const DEFAULT_SIZES: Record<string, { width: number; height: number }> = {
   integration: { width: 180, height: 90 },
@@ -40,12 +41,19 @@ export function layoutFlow(
   edges: Edge[],
   direction: 'LR' | 'TB' = 'LR',
 ): Node<IntegrationNodeData>[] {
+  return layoutPreservingGroups(nodes, (world) => positionFlow(world, edges, direction))
+}
+
+function positionFlow(
+  nodes: Node<IntegrationNodeData>[],
+  edges: Edge[],
+  direction: 'LR' | 'TB',
+): Node<IntegrationNodeData>[] {
   const graph = new dagre.graphlib.Graph()
   graph.setDefaultEdgeLabel(() => ({}))
   graph.setGraph({ rankdir: direction, nodesep: 60, ranksep: 100, marginx: 40, marginy: 40 })
 
   const layoutNodes = nodes.filter((n) => n.type !== 'group')
-  const groupNodes = nodes.filter((n) => n.type === 'group')
 
   layoutNodes.forEach((node) => {
     const { width, height } = getNodeSize(node)
@@ -73,10 +81,14 @@ export function layoutFlow(
     }
   })
 
-  return repositionGroups(positioned, groupNodes)
+  return positioned
 }
 
 export function layoutByTier(nodes: Node<IntegrationNodeData>[]): Node<IntegrationNodeData>[] {
+  return layoutPreservingGroups(nodes, (world) => positionByTier(world))
+}
+
+function positionByTier(nodes: Node<IntegrationNodeData>[]): Node<IntegrationNodeData>[] {
   const columnCounts: Record<number, number> = {}
   const groupNodes = nodes.filter((n) => n.type === 'group')
   const contentNodes = nodes.filter((n) => n.type !== 'group')
@@ -96,11 +108,14 @@ export function layoutByTier(nodes: Node<IntegrationNodeData>[]): Node<Integrati
     }
   })
 
-  const allNodes = [...positioned, ...groupNodes]
-  return repositionGroups(allNodes, groupNodes)
+  return [...positioned, ...groupNodes]
 }
 
 export function layoutGrid(nodes: Node<IntegrationNodeData>[]): Node<IntegrationNodeData>[] {
+  return layoutPreservingGroups(nodes, (world) => positionGrid(world))
+}
+
+function positionGrid(nodes: Node<IntegrationNodeData>[]): Node<IntegrationNodeData>[] {
   const COLS = 4
   const GAP_X = 220
   const GAP_Y = 120
@@ -119,7 +134,7 @@ export function layoutGrid(nodes: Node<IntegrationNodeData>[]): Node<Integration
     }
   })
 
-  return repositionGroups([...positioned, ...groupNodes], groupNodes)
+  return [...positioned, ...groupNodes]
 }
 
 /**
@@ -147,79 +162,130 @@ export function layoutSmart(
   return layoutGrid(nodes)
 }
 
-function repositionGroups(
+function layoutPreservingGroups(
   nodes: Node<IntegrationNodeData>[],
-  groupNodes: Node<IntegrationNodeData>[],
+  positionContent: (world: Node<IntegrationNodeData>[]) => Node<IntegrationNodeData>[],
 ): Node<IntegrationNodeData>[] {
-  if (groupNodes.length === 0) return nodes
-
-  const contentNodes = nodes.filter((n) => n.type !== 'group')
-  const bounds = getContentBounds(contentNodes)
-
-  return nodes.map((node) => {
-    if (node.type !== 'group') return node
-
-    const zone = node.data.properties.zone
-    if (zone) {
-      const zoneBounds = getZoneBounds(contentNodes, zone)
-      if (zoneBounds) {
-        return {
-          ...node,
-          position: { x: zoneBounds.x - 24, y: zoneBounds.y - 36 },
-          style: {
-            ...node.style,
-            width: zoneBounds.width + 48,
-            height: zoneBounds.height + 56,
-          },
-        }
-      }
-    }
-
-    if (bounds) {
-      return {
-        ...node,
-        position: { x: bounds.x - 32, y: bounds.y - 40 },
-        style: {
-          ...node.style,
-          width: bounds.width + 64,
-          height: bounds.height + 64,
-        },
-      }
-    }
-
-    return node
-  })
+  const membership = groupMembership(nodes)
+  const world = toWorldNodes(nodes)
+  const moved = positionContent(world)
+  return attachGroups(moved, membership)
 }
 
-function getContentBounds(nodes: Node<IntegrationNodeData>[]) {
-  if (nodes.length === 0) return null
-
-  let minX = Infinity
-  let minY = Infinity
-  let maxX = -Infinity
-  let maxY = -Infinity
-
-  nodes.forEach((node) => {
-    const { width, height } = getNodeSize(node)
-    minX = Math.min(minX, node.position.x)
-    minY = Math.min(minY, node.position.y)
-    maxX = Math.max(maxX, node.position.x + width)
-    maxY = Math.max(maxY, node.position.y + height)
-  })
-
-  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+function toWorldNodes(nodes: Node<IntegrationNodeData>[]): Node<IntegrationNodeData>[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  return nodes.map((node) => ({
+    ...node,
+    position: absolutePosition(node, byId),
+    parentId: undefined,
+    extent: undefined,
+    expandParent: undefined,
+  }))
 }
 
-function getZoneBounds(nodes: Node<IntegrationNodeData>[], zone: string) {
-  const zoneMap: Record<string, string[]> = {
-    SaaS: ['saas', 'external'],
-    Cloud: ['aws', 'azure', 'cloud', 'middleware', 'database'],
-    'On-Premise': ['onpremise'],
+/** Components a group actually contains: its children, or the nodes sitting inside its box. */
+function groupMembership(nodes: Node<IntegrationNodeData>[]): Map<string, string[]> {
+  const byId = new Map(nodes.map((node) => [node.id, node]))
+  const groups = nodes.filter((node) => node.type === 'group' || node.data.systemType === 'group')
+  const claimed = new Set<string>()
+  const membership = new Map<string, string[]>()
+
+  for (const group of groups) {
+    const children = nodes.filter((node) => node.parentId === group.id && !claimed.has(node.id)).map((node) => node.id)
+    if (children.length === 0) continue
+    children.forEach((id) => claimed.add(id))
+    membership.set(group.id, children)
   }
 
-  const types = zoneMap[zone]
-  if (!types) return null
+  const loose = groups
+    .filter((group) => !membership.has(group.id))
+    .map((group) => {
+      const position = absolutePosition(group, byId)
+      const width = Number(group.style?.width ?? group.measured?.width ?? 320)
+      const height = Number(group.style?.height ?? group.measured?.height ?? 200)
+      return { group, position, width, height, area: width * height }
+    })
+    .sort((a, b) => a.area - b.area)
 
-  const filtered = nodes.filter((n) => types.includes(n.data.systemType))
-  return getContentBounds(filtered)
+  for (const item of loose) {
+    const inside: string[] = []
+    for (const node of nodes) {
+      if (node.id === item.group.id || claimed.has(node.id)) continue
+      if (node.type === 'group' || node.data.systemType === 'group') continue
+      if (node.type === 'annotation' || node.data.systemType === 'note') continue
+      const position = absolutePosition(node, byId)
+      const size = getNodeSize(node)
+      const cx = position.x + size.width / 2
+      const cy = position.y + size.height / 2
+      if (
+        cx >= item.position.x &&
+        cy >= item.position.y &&
+        cx <= item.position.x + item.width &&
+        cy <= item.position.y + item.height
+      ) {
+        inside.push(node.id)
+      }
+    }
+    if (inside.length === 0) continue
+    inside.forEach((id) => claimed.add(id))
+    membership.set(item.group.id, inside)
+  }
+
+  return membership
+}
+
+function attachGroups(
+  nodes: Node<IntegrationNodeData>[],
+  membership: Map<string, string[]>,
+): Node<IntegrationNodeData>[] {
+  if (membership.size === 0) return nodes
+  const next = nodes.map((node) => ({ ...node }))
+  const byId = new Map(next.map((node) => [node.id, node]))
+  const padX = 28
+  const padTop = 44
+  const padBottom = 28
+  const ordered = [...membership.entries()].sort(
+    (a, b) => groupDepth(b[0], membership) - groupDepth(a[0], membership),
+  )
+
+  for (const [groupId, memberIds] of ordered) {
+    const group = byId.get(groupId)
+    const members = memberIds.map((id) => byId.get(id)).filter((node): node is Node<IntegrationNodeData> => Boolean(node))
+    if (!group || members.length === 0) continue
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const node of members) {
+      const size = getNodeSize(node)
+      minX = Math.min(minX, node.position.x)
+      minY = Math.min(minY, node.position.y)
+      maxX = Math.max(maxX, node.position.x + size.width)
+      maxY = Math.max(maxY, node.position.y + size.height)
+    }
+    const position = { x: minX - padX, y: minY - padTop }
+    group.position = position
+    group.parentId = undefined
+    group.extent = undefined
+    group.expandParent = undefined
+    group.style = {
+      ...group.style,
+      width: maxX - minX + padX * 2,
+      height: maxY - minY + padTop + padBottom,
+    }
+    for (const node of members) {
+      node.parentId = groupId
+      node.extent = 'parent'
+      node.expandParent = true
+      node.position = { x: node.position.x - position.x, y: node.position.y - position.y }
+    }
+  }
+
+  return orderParentsFirst(next)
+}
+
+function groupDepth(id: string, membership: Map<string, string[]>): number {
+  const nested = (membership.get(id) ?? []).filter((memberId) => membership.has(memberId))
+  if (nested.length === 0) return 0
+  return 1 + Math.max(...nested.map((memberId) => groupDepth(memberId, membership)))
 }

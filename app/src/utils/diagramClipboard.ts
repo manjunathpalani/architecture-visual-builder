@@ -66,7 +66,7 @@ export function cloneClipboard(
   const idMap = new Map<string, string>()
   const systems = payload.systems.map((system) => remapSystem(system, idMap, dx, dy))
   const integrations = payload.integrations.map((edge) => remapIntegration(edge, idMap, dx, dy))
-  const drawings = payload.drawings.map((drawing) => remapDrawing(drawing, dx, dy))
+  const drawings = payload.drawings.map((drawing) => remapDrawing(drawing, idMap, dx, dy))
   return { kind: CLIPBOARD_KIND, systems, integrations, drawings }
 }
 
@@ -181,7 +181,7 @@ function remapSystem(
     copy.subDiagram.integrations = copy.subDiagram.integrations.map((edge) =>
       remapIntegration(edge, nested, 0, 0),
     )
-    copy.subDiagram.drawings = copy.subDiagram.drawings?.map((drawing) => remapDrawing(drawing, 0, 0))
+    copy.subDiagram.drawings = copy.subDiagram.drawings?.map((drawing) => remapDrawing(drawing, nested, 0, 0))
   }
   return copy
 }
@@ -197,10 +197,16 @@ function remapIntegration(edge: Integration, idMap: Map<string, string>, dx: num
   return copy
 }
 
-function remapDrawing(drawing: DrawingElement, dx: number, dy: number): DrawingElement {
+function remapDrawing(
+  drawing: DrawingElement,
+  idMap: Map<string, string>,
+  dx: number,
+  dy: number,
+): DrawingElement {
   return {
     ...structuredClone(drawing),
     id: generateId('draw'),
+    systemIds: drawing.systemIds?.map((id) => idMap.get(id) ?? id),
     points: drawing.points.map((point) => ({ x: point.x + dx, y: point.y + dy })),
   }
 }

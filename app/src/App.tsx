@@ -107,6 +107,7 @@ import {
 import { createFromPickId, createFromTemplate } from './data/templates'
 import { addUserTemplate } from './utils/userTemplates'
 import { mergeGeneratedIntoView, type AiPlacement } from './utils/aiDiagram'
+import { redrawKeepingZones } from './utils/zoneRectangles'
 import { applySaasImport, type SaasImportPayload } from './utils/saas/mapToDiagram'
 import { applyAudit, type AuditExtras } from './utils/auditLog'
 import {
@@ -1247,12 +1248,18 @@ function App() {
       setTabs((prev) => [...prev, newTab])
       setActiveTabId(newTab.id)
     } else if (placement === 'replace') {
-      updateActiveTab((tab) => ({
-        ...tab,
-        document: applyAudit(tab.document, generated, { kind: 'ai', summary: 'Replaced diagram with AI' }),
-        drillPath: [],
-        canvasKey: tab.canvasKey + 1,
-      }))
+      updateActiveTab((tab) => {
+        const next = redrawKeepingZones(tab.document, tab.drillPath, generated)
+        return {
+          ...tab,
+          document: applyAudit(tab.document, next, {
+            kind: 'ai',
+            summary: tab.drillPath.length === 0 ? 'Replaced diagram with AI' : 'Replaced this canvas with AI',
+          }),
+          drillPath: tab.drillPath,
+          canvasKey: tab.canvasKey + 1,
+        }
+      })
     } else {
       setDocument(
         (prev) => mergeGeneratedIntoView(prev, drillPath, generated),
@@ -1994,6 +2001,7 @@ function App() {
           <AiDiagramModal
             open
             currentDocument={document}
+            drillPath={drillPath}
             onGenerate={handleAiGenerate}
             onManageKeys={() => {
               setSettingsTab('ai')

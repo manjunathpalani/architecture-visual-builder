@@ -184,6 +184,7 @@ async function handleDiagram(req: IncomingMessage, res: ServerResponse, env: Rec
     model?: string
     azureEndpoint?: string
     azureDeployment?: string
+    systemPrompt?: string
     images?: Array<{ mimeType?: string; dataUrl?: string; name?: string }>
   }
   try {
@@ -224,6 +225,7 @@ async function handleDiagram(req: IncomingMessage, res: ServerResponse, env: Rec
   const azureDeployment = body.azureDeployment?.trim() || envValue(env, 'AZURE_OPENAI_DEPLOYMENT')
 
   try {
+    const systemPrompt = body.systemPrompt?.trim().slice(0, 16000) || undefined
     const text = await completeDiagram({
       provider: providerId,
       prompt,
@@ -233,6 +235,7 @@ async function handleDiagram(req: IncomingMessage, res: ServerResponse, env: Rec
       model,
       azureEndpoint,
       azureDeployment,
+      systemPrompt,
     })
     json(res, 200, { text, model, provider: providerId })
   } catch (err) {

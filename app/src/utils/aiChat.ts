@@ -1,8 +1,9 @@
 import type { AiImage } from './aiImage'
 import type { AiPlacement } from './aiDiagram'
+import { isDiagramDrawSetting, type DiagramDrawSetting } from './diagramDrawContext'
 
 export const AI_CHAT_WELCOME =
-  'Hi — I can draw an architecture from a description or a screenshot, then keep refining it in this chat. Tell me what to design, or pick a starter below.'
+  'Hi — I follow the canvas you have open and draw components of that type (solution, context, process, landing zone, application internals, and so on). Tell me what to add, or pick a different diagram type if this canvas should be treated another way.'
 
 export interface AiChatMessage {
   id: string
@@ -16,6 +17,8 @@ export interface AiChatSession {
   messages: AiChatMessage[]
   placement: AiPlacement
   useContext: boolean
+  /** `auto` reads the open canvas and picks the matching component style. */
+  diagramType: DiagramDrawSetting
   draft?: string
   updatedAt: string
 }
@@ -27,7 +30,8 @@ export function defaultAiChatSession(): AiChatSession {
   return {
     messages: [{ id: 'welcome', role: 'assistant', text: AI_CHAT_WELCOME }],
     placement: 'new-tab',
-    useContext: false,
+    useContext: true,
+    diagramType: 'auto',
     draft: '',
     updatedAt: new Date().toISOString(),
   }
@@ -59,10 +63,12 @@ export function loadAiChatSession(): AiChatSession {
         typeof message.id === 'string',
     )
     if (messages.length === 0) return fallback
+    const storedType = isDiagramDrawSetting(parsed.diagramType) ? parsed.diagramType : undefined
     return {
       messages: capMessages(messages),
       placement: isPlacement(parsed.placement) ? parsed.placement : 'new-tab',
-      useContext: Boolean(parsed.useContext),
+      useContext: storedType ? Boolean(parsed.useContext) : true,
+      diagramType: storedType ?? 'auto',
       draft: typeof parsed.draft === 'string' ? parsed.draft : '',
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : fallback.updatedAt,
     }
@@ -76,6 +82,7 @@ export function saveAiChatSession(session: Omit<AiChatSession, 'updatedAt'> & { 
     messages: capMessages(session.messages),
     placement: session.placement,
     useContext: session.useContext,
+    diagramType: session.diagramType,
     draft: session.draft ?? '',
     updatedAt: new Date().toISOString(),
   }
